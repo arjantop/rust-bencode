@@ -1,6 +1,6 @@
 # Rust Bencode
 
-[![Build Status](https://travis-ci.org/arjantop/rust-bencode?branch=master)](https://travis-ci.org/arjantop/rust-bencode)
+[![Build Status](https://travis-ci.org/arjantop/rust-bencode.png?branch=master)](https://travis-ci.org/arjantop/rust-bencode)
 
 Implementation of Bencode encoding written in rust.
 
