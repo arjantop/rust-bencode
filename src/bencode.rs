@@ -65,53 +65,90 @@ pub trait ToBencode {
     fn to_bencode(&self) -> Bencode;
 }
 
-impl ToBencode for int {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
+pub trait FromBencode {
+    fn from_bencode(bencode: &Bencode) -> Option<Self>;
 }
 
-impl ToBencode for i8 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+macro_rules! derive_num_to_bencode(($t:ty) => (
+    impl ToBencode for $t {
+        fn to_bencode(&self) -> Bencode { Number(*self as i64) }
+    }
+))
 
-impl ToBencode for i16 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+macro_rules! derive_num_from_bencode(($t:ty) => (
+    impl FromBencode for $t {
+        fn from_bencode(bencode: &Bencode) -> Option<$t> {
+            match bencode {
+                &Number(v) => Some(v as $t),
+                _ => None
+            }
+        }
+    }
+))
 
-impl ToBencode for i32 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(int)
+derive_num_from_bencode!(int)
 
-impl ToBencode for i64 {
-    fn to_bencode(&self) -> Bencode { Number(*self) }
-}
+derive_num_to_bencode!(i8)
+derive_num_from_bencode!(i8)
 
-impl ToBencode for uint {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(i16)
+derive_num_from_bencode!(i16)
 
-impl ToBencode for u8 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(i32)
+derive_num_from_bencode!(i32)
 
-impl ToBencode for u16 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(i64)
+derive_num_from_bencode!(i64)
 
-impl ToBencode for u32 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(uint)
+derive_num_from_bencode!(uint)
 
-impl ToBencode for u64 {
-    fn to_bencode(&self) -> Bencode { Number(*self as i64) }
-}
+derive_num_to_bencode!(u8)
+derive_num_from_bencode!(u8)
+
+derive_num_to_bencode!(u16)
+derive_num_from_bencode!(u16)
+
+derive_num_to_bencode!(u32)
+derive_num_from_bencode!(u32)
+
+derive_num_to_bencode!(u64)
+derive_num_from_bencode!(u64)
 
 impl ToBencode for ~str {
     fn to_bencode(&self) -> Bencode { ByteString((*self).as_bytes().into_owned()) }
 }
 
+impl FromBencode for ~str {
+    fn from_bencode(bencode: &Bencode) -> Option<~str> {
+        match bencode {
+            &ByteString(ref v) => std::str::from_utf8(*v).map(|s| s.to_owned()),
+            _ => None
+        }
+    }
+}
+
 impl<T: ToBencode> ToBencode for ~[T] {
     fn to_bencode(&self) -> Bencode { List(self.map(|e| e.to_bencode())) }
+}
 
+impl<T: FromBencode> FromBencode for ~[T] {
+    fn from_bencode(bencode: &Bencode) -> Option<~[T]> {
+        match bencode {
+            &List(ref es) => {
+                let mut list = ~[];
+                for e in es.iter() {
+                    match FromBencode::from_bencode(e) {
+                        Some(v) => list.push(v),
+                        None => return None
+                    } 
+                }
+                Some(list)
+            }
+            _ => None
+        }
+    }
 }
 
 macro_rules! try(($e:expr) => (
