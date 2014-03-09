@@ -33,7 +33,7 @@ pub enum Bencode {
     Dict(Dict)
 }
 
-#[deriving(Eq, Clone, TotalOrd, TotalEq)]
+#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord)]
 pub struct Key(~[u8]);
 
 pub type List = ~[Bencode];
