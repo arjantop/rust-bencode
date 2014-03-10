@@ -30,7 +30,7 @@ pub enum Bencode {
     Number(i64),
     ByteString(~[u8]),
     List(List),
-    Dict(Dict)
+    Dict(Dict),
 }
 
 #[deriving(Eq, Clone, TotalOrd, TotalEq, Ord)]
@@ -161,7 +161,7 @@ impl<T: FromBencode> FromBencode for ~[T] {
     }
 }
 
-macro_rules! try(($e:expr) => (
+macro_rules! tryenc(($e:expr) => (
     match $e {
         Ok(e) => e,
         Err(e) => {
@@ -176,7 +176,7 @@ pub struct Encoder<'a> {
     priv depth: uint,
     priv current_writer: io::MemWriter,
     priv error: io::IoResult<()>,
-    priv dict_stack: Vec<TreeMap<Key, ~[u8]>>
+    priv dict_stack: Vec<TreeMap<Key, ~[u8]>>,
 }
 
 impl<'a> Encoder<'a> {
@@ -210,7 +210,7 @@ impl<'a> Encoder<'a> {
     fn encode_dict(&mut self, dict: &TreeMap<Key, ~[u8]>) {
         for (key, value) in dict.iter() {
             key.encode(self);
-            try!(self.get_writer().write(*value));
+            tryenc!(self.get_writer().write(*value));
         }
     }
 }
@@ -236,13 +236,13 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_i32(&mut self, v: i32) { self.emit_i64(v as i64); }
 
-    fn emit_i64(&mut self, v: i64) { try!(write!(self.get_writer(), "i{}e", v)) }
+    fn emit_i64(&mut self, v: i64) { tryenc!(write!(self.get_writer(), "i{}e", v)) }
 
     fn emit_bool(&mut self, v: bool) {
         if v {
-            try!(write!(self.get_writer(), "true"));
+            tryenc!(write!(self.get_writer(), "true"));
         } else {
-            try!(write!(self.get_writer(), "false"));
+            tryenc!(write!(self.get_writer(), "false"));
         }
     }
 
@@ -252,8 +252,8 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_char(&mut self, v: char) { self.emit_str(str::from_char(v)); }
 
     fn emit_str(&mut self, v: &str) {
-        try!(write!(self.get_writer(), "{}:", v.len()));
-        try!(self.get_writer().write(v.as_bytes()));
+        tryenc!(write!(self.get_writer(), "{}:", v.len()));
+        tryenc!(self.get_writer().write(v.as_bytes()));
     }
 
     fn emit_enum(&mut self, _name: &str, _f: |&mut Encoder<'a>|) { unimplemented!(); }
@@ -263,24 +263,21 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_enum_struct_variant_field(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_struct(&mut self, _name: &str, _len: uint, f: |&mut Encoder<'a>|) {
-        try!(write!(self.get_writer(), "d"));
+        tryenc!(write!(self.get_writer(), "d"));
         self.depth += 1;
         self.dict_stack.push(TreeMap::new());
         f(self);
         self.depth -= 1;
         let dict = self.dict_stack.pop().unwrap();
         self.encode_dict(&dict);
-        try!(write!(self.get_writer(), "e"));
+        tryenc!(write!(self.get_writer(), "e"));
     }
 
     fn emit_struct_field(&mut self, f_name: &str, _f_idx: uint, f: |&mut Encoder<'a>|) {
         f(self);
-        {
-            let data = self.current_writer.get_ref();
-            let dict = self.dict_stack.mut_last().unwrap();
-            dict.insert(Key(f_name.as_bytes().to_owned()), data.to_owned());
-        }
-        self.current_writer = io::MemWriter::new();
+        let data = std::mem::replace(&mut self.current_writer, io::MemWriter::new());
+        let dict = self.dict_stack.mut_last().unwrap();
+        dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
     }
 
     fn emit_tuple(&mut self, _len: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
@@ -292,9 +289,9 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_option_some(&mut self, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_seq(&mut self, _len: uint, f: |this: &mut Encoder<'a>|) {
-        try!(write!(self.get_writer(), "l"));
+        tryenc!(write!(self.get_writer(), "l"));
         f(self);
-        try!(write!(self.get_writer(), "e"));
+        tryenc!(write!(self.get_writer(), "e"));
     }
 
     fn emit_seq_elt(&mut self, _idx: uint, f: |this: &mut Encoder<'a>|) {
@@ -302,9 +299,9 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     }
 
     fn emit_map(&mut self, _len: uint, f: |&mut Encoder<'a>|) {
-        try!(write!(self.get_writer(), "d"));
+        tryenc!(write!(self.get_writer(), "d"));
         f(self);
-        try!(write!(self.get_writer(), "e"));
+        tryenc!(write!(self.get_writer(), "e"));
     }
 
     fn emit_map_elt_key(&mut self, _idx: uint, f: |&mut Encoder<'a>|) {
@@ -316,74 +313,305 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     }
 }
 
+#[deriving(Show, Eq, Clone)]
+pub enum BencodeEvent {
+    NumberValue(i64),
+    ByteStringValue(~[u8]),
+    ListStart,
+    ListEnd,
+    DictStart,
+    DictKey(~[u8]),
+    DictEnd,
+    ParseError(Error),
+}
+
+#[deriving(Show, Eq, Clone)]
+pub struct Error {
+    pos: u32,
+    msg: ~str,
+}
+
+#[deriving(Show, Eq, Clone)]
+enum ExpectedToken {
+    ValueToken,
+    KeyToken
+}
+
+pub struct StreamingParser<T> {
+    priv reader: T,
+    priv pos: u32,
+    priv decoded: u32,
+    priv end: bool,
+    priv curr: Option<u8>,
+    priv nesting: Vec<BencodeEvent>,
+    priv expected: ExpectedToken
+}
+
+macro_rules! expect(($ch:pat, $ex:expr) => (
+    match self.curr_char() {
+        Some($ch) => self.next_byte(),
+        _ => return self.error($ex)
+    }
+))
+
+impl<T: Iterator<u8>> StreamingParser<T> {
+    pub fn new(mut reader: T) -> StreamingParser<T> {
+        let next = reader.next();
+        StreamingParser {
+            reader: reader,
+            pos: 0,
+            decoded: 0,
+            end: false,
+            curr: next,
+            nesting: Vec::new(),
+            expected: ValueToken
+        }
+    }
+
+    fn next_byte(&mut self) {
+        self.pos += 1;
+        self.curr = self.reader.next();
+        self.end = self.curr.is_none();
+    }
+    
+    fn next_bytes(&mut self, len: uint) -> Result<~[u8], Error> {
+        let mut bytes = ~[];
+        for _ in range(0, len) {
+            match self.curr {
+                Some(x) =>  bytes.push(x),
+                None => {
+                    let msg = format!("Expecting {} bytes but only got {}", len, bytes.len());
+                    return self.error_msg(msg)
+                }
+            }
+            self.next_byte();
+        }
+        Ok(bytes)
+    }
+
+    fn curr_char(&mut self) -> Option<char> {
+        self.curr.map(|v| v as char)
+    }
+
+    fn error<T>(&mut self, expected: ~str) -> Result<T, Error> {
+        let got = self.curr_char();
+        let got_char = match got {
+            Some(x) => alphanum_to_str(x),
+            None => ~"EOF"
+        };
+        self.error_msg(format!("Expecting '{}' but got '{}'", expected, got_char))
+    }
+
+    fn error_msg<T>(&mut self, msg: ~str) -> Result<T, Error> {
+        Err(Error {
+            pos: self.pos,
+            msg: msg
+        })
+    }
+
+    fn parse_number(&mut self) -> Result<i64, Error> {
+        let sign = match self.curr_char() {
+            Some('-') => {
+                self.next_byte();
+                -1
+            }
+            _ => 1
+        };
+        let num = try!(self.parse_number_unsigned());
+        expect!('e', ~"e");
+        Ok(sign * num)
+    }
+
+    fn parse_number_unsigned(&mut self) -> Result<i64, Error> {
+        let mut num = 0;
+        match self.curr_char() {
+            Some('0') => self.next_byte(),
+            Some('1' .. '9') => {
+                loop {
+                    match self.curr_char() {
+                        Some(ch @ '0' .. '9') => self.parse_digit(ch, &mut num),
+                        _ => break
+                    }
+                    self.next_byte();
+                }
+            }
+            _ => return self.error(~"0-9")
+        };
+        Ok(num)
+    }
+
+    fn parse_digit(&self, ch: char, num: &mut i64) {
+        *num *= 10;
+        *num += ch.to_digit(10).unwrap() as i64;
+    }
+
+    fn parse_bytestring(&mut self) -> Result<~[u8], Error> {
+        let len = try!(self.parse_number_unsigned());
+        expect!(':', ~":");
+        let bytes = try!(self.next_bytes(len as uint));
+        Ok(bytes)
+    }
+}
+
+macro_rules! try_result(($e:expr) => (
+    match $e {
+        Ok(e) => Some(e),
+        Err(err) => {
+            self.end = true;
+            return Some(ParseError(err))
+        }
+    }
+))
+
+macro_rules! check_nesting(() => (
+    if self.decoded > 0 && self.nesting.len() == 0 {
+        return try_result!(self.error_msg(~"Only one value allowed outside of containers"))
+    }
+))
+
+impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
+    fn next(&mut self) -> Option<BencodeEvent> {
+        if self.end {
+            return None
+        }
+        match self.curr_char() {
+            Some('i') => {
+                check_nesting!();
+                if self.expected == KeyToken {
+                    return try_result!(self.error_msg(~"Wrong key type: integer"));
+                }
+                self.next_byte();
+                self.decoded += 1;
+                let res = try_result!(self.parse_number());
+                res.map(|v| NumberValue(v))
+            }
+            Some('0' .. '9') => {
+                check_nesting!();
+                self.decoded += 1;
+                let res = try_result!(self.parse_bytestring());
+                match self.expected {
+                    ValueToken => res.map(|v| ByteStringValue(v)),
+                    KeyToken => {
+                        self.expected = ValueToken;
+                        res.map(|v| DictKey(v))
+                    }
+                }
+            }
+            Some('l') => {
+                check_nesting!();
+                if self.expected == KeyToken {
+                    return try_result!(self.error_msg(~"Wrong key type: list"));
+                }
+                self.next_byte();
+                self.decoded += 1;
+                self.nesting.push(ListStart);
+                Some(ListStart)
+            }
+            Some('d') => {
+                check_nesting!();
+                if self.expected == KeyToken {
+                    return try_result!(self.error_msg(~"Wrong key type: dict"));
+                }
+                self.next_byte();
+                self.decoded += 1;
+                self.nesting.push(DictStart);
+                self.expected = KeyToken;
+                Some(DictStart)
+            }
+            Some('e') => {
+                self.next_byte();
+                match self.nesting.pop() {
+                    Some(ListStart) => Some(ListEnd),
+                    Some(DictStart) => Some(DictEnd),
+                    _ => return try_result!(self.error_msg(~"Unmatched value ending"))
+                }
+            }
+            _ => try_result!(self.error(~"i or 0-9 or l or d or e"))
+        }
+    }
+}
+
+fn alphanum_to_str(ch: char) -> ~str {
+    if ch.is_alphanumeric() {
+        ch.to_str()
+    } else {
+        (ch as u8).to_str()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::io;
+    use std::str::raw;
     use serialize::{Encodable};
     use collections::treemap::TreeMap;
 
+    use super::{Error};
     use super::{Encoder, ByteString, List, Number, Dict, Key};
+    use super::{StreamingParser, BencodeEvent, NumberValue, ByteStringValue,
+                ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use super::alphanum_to_str;
 
     #[deriving(Eq, Show, Encodable)]
     struct SimpleStruct {
         a: uint,
-        b: ~[~str]
+        b: ~[~str],
     }
 
     #[test]
-    fn can_encode_number_zero() {
+    fn encodes_number_zero() {
         assert_eq!(Number(0).to_bytes(), bytes!("i0e").to_owned());
     }
 
     #[test]
-    fn can_encode_positive_numbers() {
+    fn encodes_positive_numbers() {
         assert_eq!(Number(-5).to_bytes(), bytes!("i-5e").to_owned());
         assert_eq!(Number(::std::i64::MIN).to_bytes(), format!("i{}e", ::std::i64::MIN).as_bytes().to_owned());
     }
 
     #[test]
-    fn can_encode_negative_numbers() {
+    fn encodes_negative_numbers() {
         assert_eq!(Number(5).to_bytes(), bytes!("i5e").to_owned());
         assert_eq!(Number(::std::i64::MAX).to_bytes(), format!("i{}e", ::std::i64::MAX).as_bytes().to_owned());
     }
 
     #[test]
-    fn can_encode_empty_bytestring() {
+    fn encodes_empty_bytestring() {
         assert_eq!(ByteString(~[]).to_bytes(), bytes!("0:").to_owned());
     }
 
     #[test]
-    fn can_encode_nonempty_bytestring() {
+    fn encodes_nonempty_bytestring() {
         assert_eq!(ByteString((~"abc").into_bytes()).to_bytes(), bytes!("3:abc").to_owned());
         assert_eq!(ByteString(~[0, 1, 2, 3]).to_bytes(), bytes!("4:") + ~[0u8, 1, 2, 3]);
     }
 
     #[test]
-    fn can_encode_empty_list() {
+    fn encodes_empty_list() {
         assert_eq!(List(~[]).to_bytes(), bytes!("le").to_owned());
     }
 
     #[test]
-    fn can_encode_nonempty_list() {
+    fn encodes_nonempty_list() {
         assert_eq!(List(~[Number(1)]).to_bytes(), bytes!("li1ee").to_owned());
         assert_eq!(List(~[ByteString((~"foobar").into_bytes()),
                           Number(-1)]).to_bytes(), bytes!("l6:foobari-1ee").to_owned());
     }
 
     #[test]
-    fn can_encode_nested_list() {
+    fn encodes_nested_list() {
         assert_eq!(List(~[List(~[])]).to_bytes(), bytes!("llee").to_owned());
         let list = List(~[Number(1988), List(~[Number(2014)])]);
         assert_eq!(list.to_bytes(), bytes!("li1988eli2014eee").to_owned());
     }
 
     #[test]
-    fn can_encode_empty_dict() {
+    fn encodes_empty_dict() {
         assert_eq!(Dict(TreeMap::new()).to_bytes(), bytes!("de").to_owned());
     }
 
     #[test]
-    fn can_encode_dict_with_items() {
+    fn encodes_dict_with_items() {
         let mut m = TreeMap::new();
         m.insert(Key((~"k1").into_bytes()), Number(1));
         assert_eq!(Dict(m.clone()).to_bytes(), bytes!("d2:k1i1ee").to_owned());
@@ -392,7 +620,7 @@ mod test {
     }
 
     #[test]
-    fn can_encode_nested_dict() {
+    fn encodes_nested_dict() {
         let mut outer = TreeMap::new();
         let mut inner = TreeMap::new();
         inner.insert(Key((~"val").into_bytes()), ByteString(~[68, 0, 90]));
@@ -401,7 +629,7 @@ mod test {
     }
 
     #[test]
-    fn should_encode_dict_fields_in_sorted_order() {
+    fn encodes_dict_fields_in_sorted_order() {
         let mut m = TreeMap::new();
         m.insert(Key((~"z").into_bytes()), Number(1));
         m.insert(Key((~"abd").into_bytes()), Number(3));
@@ -410,7 +638,7 @@ mod test {
     }
 
     #[test]
-    fn can_encode_encodable_struct() {
+    fn encodes_encodable_struct() {
         let mut writer = io::MemWriter::new();
         {
             let mut encoder = Encoder::new(&mut writer);
@@ -424,13 +652,13 @@ mod test {
     }
 
     #[test]
-    fn should_encode_struct_fields_in_sorted_order() {
+    fn encodes_struct_fields_in_sorted_order() {
         #[deriving(Encodable)]
         struct OrderedStruct {
             z: int,
             a: int,
             ab: int,
-            aa: int
+            aa: int,
         }
         let mut writer = io::MemWriter::new();
         {
@@ -444,5 +672,196 @@ mod test {
             s.encode(&mut encoder);
         }
         assert_eq!(writer.unwrap(), bytes!("d1:ai1e2:aai2e2:abi3e1:zi4ee").to_owned());
+    }
+
+    fn assert_stream_equal(encoded: &str, expected: &[BencodeEvent]) {
+        let mut parser = StreamingParser::new(encoded.bytes());
+        let result = parser.to_owned_vec();
+        assert_eq!(expected, result.as_slice());
+    }
+
+    #[test]
+    fn parse_error_on_invalid_first_character() {
+        for n in range(::std::u8::MIN, ::std::u8::MAX) {
+            match n as char {
+                'i' | '0' .. '9' | 'l' | 'd' | 'e' => continue,
+                _ => {}
+            };
+            let msg = format!("Expecting 'i or 0-9 or l or d or e' but got '{}'", alphanum_to_str(n as char));
+            assert_stream_equal(unsafe { raw::from_utf8([n]) },
+                                [ParseError(Error{
+                                    pos: 0,
+                                    msg: msg })]);
+        }
+    }
+
+    #[test]
+    fn parses_number_zero() {
+        assert_stream_equal("i0e", [NumberValue(0)]);
+    }
+
+    #[test]
+    fn parses_positive_numbers() {
+        assert_stream_equal("i5e", [NumberValue(5)]);
+        assert_stream_equal(format!("i{}e", ::std::i64::MAX), [NumberValue(::std::i64::MAX)]);
+    }
+
+    #[test]
+    fn parses_negative_numbers() {
+        assert_stream_equal("i-5e", [NumberValue(-5)]);
+        assert_stream_equal(format!("i{}e", ::std::i64::MIN), [NumberValue(::std::i64::MIN)]);
+    }
+
+    #[test]
+    fn parse_error_on_number_without_ending() {
+        assert_stream_equal("i10", [ParseError(Error{ pos: 3, msg: ~"Expecting 'e' but got 'EOF'" })]);
+    }
+
+    #[test]
+    fn parse_error_on_number_with_leading_zero() {
+        assert_stream_equal("i0215e", [ParseError(Error{ pos: 2, msg: ~"Expecting 'e' but got '2'" })]);
+    }
+
+    #[test]
+    fn parse_error_on_empty_number() {
+        assert_stream_equal("ie", [ParseError(Error{ pos: 1, msg: ~"Expecting '0-9' but got 'e'" })]);
+    }
+
+    #[test]
+    fn parse_error_on_more_than_one_value_outside_of_containers() {
+        let msg = ~"Only one value allowed outside of containers";
+        assert_stream_equal("i1ei2e", [NumberValue(1), ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_equal("i10eli2ee", [NumberValue(10), ParseError(Error{ pos: 4, msg: msg.clone() })]);
+        assert_stream_equal("1:ade", [ByteStringValue(bytes!("a").to_owned()), ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_equal("3:foo3:bar", [ByteStringValue(bytes!("foo").to_owned()),
+                                           ParseError(Error{ pos: 5, msg: msg.clone() })]);
+    }
+
+    #[test]
+    fn parses_empty_bytestring() {
+        assert_stream_equal("0:", [ByteStringValue(~[])]);
+    }
+
+    #[test]
+    fn parses_short_bytestring() {
+        assert_stream_equal("6:abcdef", [ByteStringValue(bytes!("abcdef").to_owned())]);
+    }
+
+    #[test]
+    fn parses_long_bytestring() {
+        let long = "baz".repeat(10);
+        assert_stream_equal(format!("{}:{}", long.len(), long), [ByteStringValue(long.as_bytes().to_owned())]);
+    }
+
+    #[test]
+    fn parse_error_on_too_short_data() {
+        assert_stream_equal("5:abcd", [ParseError(Error { pos: 6, msg: ~"Expecting 5 bytes but only got 4" })]);
+    }
+
+    #[test]
+    fn parse_error_on_malformed_bytestring() {
+        assert_stream_equal("3abc", [ParseError(Error { pos: 1, msg: ~"Expecting ':' but got 'a'" })]);
+    }
+
+    #[test]
+    fn parse_empty_list() {
+        assert_stream_equal("le", [ListStart, ListEnd]);
+    }
+
+    #[test]
+    fn parses_list_with_number() {
+        assert_stream_equal("li2006ee", [ListStart, NumberValue(2006), ListEnd]);
+    }
+
+    #[test]
+    fn parses_list_with_bytestring() {
+        assert_stream_equal("l9:foobarbaze", [ListStart, ByteStringValue(bytes!("foobarbaz").to_owned()), ListEnd]);
+    }
+
+    #[test]
+    fn parses_list_with_mixed_elements() {
+        assert_stream_equal("l4:rusti2006ee",
+                            [ListStart,
+                             ByteStringValue(bytes!("rust").to_owned()),
+                             NumberValue(2006),
+                             ListEnd]);
+    }
+
+    #[test]
+    fn parses_nested_lists() {
+        assert_stream_equal("li1983el3:c++e3:oope",
+                            [ListStart,
+                            NumberValue(1983),
+                            ListStart,
+                            ByteStringValue(bytes!("c++").to_owned()),
+                            ListEnd,
+                            ByteStringValue(bytes!("oop").to_owned()),
+                            ListEnd]);
+    }
+
+    #[test]
+    fn parses_empty_dict() {
+        assert_stream_equal("de", [DictStart, DictEnd]);
+    }
+
+    #[test]
+    fn parses_dict_with_number_value() {
+        assert_stream_equal("d3:fooi2006ee",
+                            [DictStart,
+                             DictKey(bytes!("foo").to_owned()),
+                             NumberValue(2006),
+                             DictEnd])
+    }
+
+    #[test]
+    fn parses_dict_with_bytestring_value() {
+        assert_stream_equal("d3:foo4:2006e",
+                            [DictStart,
+                             DictKey(bytes!("foo").to_owned()),
+                             ByteStringValue(bytes!("2006").to_owned()),
+                             DictEnd])
+    }
+
+    #[test]
+    fn parses_dict_with_list_value() {
+        assert_stream_equal("d3:fooli2006eee",
+                            [DictStart,
+                             DictKey(bytes!("foo").to_owned()),
+                             ListStart,
+                             NumberValue(2006),
+                             ListEnd,
+                             DictEnd])
+    }
+
+    #[test]
+    fn parses_nested_dicts() {
+        assert_stream_equal("d3:food3:bari2006eee",
+                            [DictStart,
+                             DictKey(bytes!("foo").to_owned()),
+                             DictStart,
+                             DictKey(bytes!("bar").to_owned()),
+                             NumberValue(2006),
+                             DictEnd,
+                             DictEnd])
+    }
+
+    #[test]
+    fn parse_error_on_key_of_of_wrong_type() {
+        assert_stream_equal("di2006ei1ee",
+                            [DictStart,
+                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: integer" })]);
+        assert_stream_equal("dleei1ee",
+                            [DictStart,
+                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: list" })]);
+        assert_stream_equal("ddei1ee",
+                            [DictStart,
+                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: dict" })]);
+    }
+
+    #[test]
+    fn parse_error_on_unmatched_value_ending() {
+        let msg = ~"Unmatched value ending";
+        assert_stream_equal("e", [ParseError(Error{ pos: 1, msg: msg.clone() })]);
+        assert_stream_equal("lee", [ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
     }
 }
