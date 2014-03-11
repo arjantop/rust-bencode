@@ -17,6 +17,7 @@ extern crate collections;
 extern crate serialize;
 
 use std::io;
+use std::fmt;
 use std::str;
 use std::str::raw;
 use std::vec_ng::Vec;
@@ -33,7 +34,30 @@ pub enum Bencode {
     Dict(Dict),
 }
 
-#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord)]
+impl fmt::Show for Bencode {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Number(v) => write!(fmt.buf, "{}", v),
+            &ByteString(ref v) => write!(fmt.buf, "s{}", v),
+            &List(ref v) => write!(fmt.buf, "{}", v),
+            &Dict(ref v) => {
+                try!(write!(fmt.buf, r"\{"));
+                let mut first = true;
+                for (key, value) in v.iter() {
+                    if first {
+                        first = false;
+                    } else {
+                        try!(write!(fmt.buf, ", "));
+                    }
+                    try!(write!(fmt.buf, "{}: {}", *key, *value));
+                }
+                write!(fmt.buf, r"\}")
+            }
+        }
+    }
+}
+
+#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord, Show)]
 pub struct Key(~[u8]);
 
 pub type List = ~[Bencode];
@@ -76,7 +100,7 @@ pub trait ToBencode {
 }
 
 pub trait FromBencode {
-    fn from_bencode(bencode: &Bencode) -> Option<Self>;
+    fn from_bencode(&Bencode) -> Option<Self>;
 }
 
 macro_rules! derive_num_to_bencode(($t:ty) => (
@@ -539,6 +563,91 @@ fn alphanum_to_str(ch: char) -> ~str {
     }
 }
 
+pub struct Parser<T> {
+    reader: T,
+    depth: u32,
+}
+
+impl<T: Iterator<BencodeEvent>> Parser<T> {
+    pub fn new(reader: T) -> Parser<T> {
+        Parser {
+            reader: reader,
+            depth: 0
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<Bencode, Error> {
+        let next = self.reader.next();
+        self.parse_elem(next)
+    }
+
+    fn parse_elem(&mut self, current: Option<BencodeEvent>) -> Result<Bencode, Error> {
+        let res = match current {
+            Some(NumberValue(v)) => Ok(Number(v)),
+            Some(ByteStringValue(v)) => Ok(ByteString(v)),
+            Some(ListStart) => self.parse_list(current),
+            Some(DictStart) => self.parse_dict(current),
+            Some(ParseError(err)) => Err(err),
+            x => fail!("Unimplemented: {}", x)
+        };
+        if self.depth == 0 {
+            let next = self.reader.next();
+            match res {
+                Err(_) => res,
+                _ => {
+                    match next {
+                        Some(ParseError(err)) => Err(err),
+                        None => res,
+                        x => fail!("Unreachable but got {}", x)
+                    }
+                }
+            }
+        } else {
+            res
+        }
+    }
+
+    fn parse_list(&mut self, mut current: Option<BencodeEvent>) -> Result<Bencode, Error> {
+        self.depth += 1;
+        let mut list = ~[];
+        loop {
+            current = self.reader.next();
+            match current {
+                Some(ListEnd) => break,
+                Some(ParseError(err)) => return Err(err),
+                Some(_) => {
+                    match self.parse_elem(current) {
+                        Ok(v) => list.push(v),
+                        err@Err(_) => return err
+                    }
+                }
+                x => fail!("Unreachable but got {}", x)
+            }
+        }
+        self.depth -= 1;
+        Ok(List(list))
+    }
+
+    fn parse_dict(&mut self, mut current: Option<BencodeEvent>) -> Result<Bencode, Error> {
+        self.depth += 1;
+        let mut map = TreeMap::new();
+        loop {
+            current = self.reader.next();
+            let key = match current {
+                Some(DictEnd) => break,
+                Some(DictKey(v)) => Key(v),
+                Some(ParseError(err)) => return Err(err),
+                x => fail!("Unreachable but got {}", x)
+            };
+            current = self.reader.next();
+            let value = try!(self.parse_elem(current));
+            map.insert(key, value);
+        }
+        self.depth -= 1;
+        Ok(Dict(map))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::io;
@@ -546,16 +655,21 @@ mod test {
     use serialize::{Encodable};
     use collections::treemap::TreeMap;
 
-    use super::{Error};
+    use super::{Bencode, Error};
     use super::{Encoder, ByteString, List, Number, Dict, Key};
     use super::{StreamingParser, BencodeEvent, NumberValue, ByteStringValue,
                 ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use super::Parser;
     use super::alphanum_to_str;
 
     #[deriving(Eq, Show, Encodable)]
     struct SimpleStruct {
         a: uint,
         b: ~[~str],
+    }
+
+    fn bytes(s: &str) -> ~[u8] {
+        s.as_bytes().to_owned()
     }
 
     #[test]
@@ -863,5 +977,119 @@ mod test {
         let msg = ~"Unmatched value ending";
         assert_stream_equal("e", [ParseError(Error{ pos: 1, msg: msg.clone() })]);
         assert_stream_equal("lee", [ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
+    }
+
+    fn assert_decoded_eq(events: &[BencodeEvent], expected: Result<Bencode, Error>) {
+        let mut parser = Parser::new(events.to_owned().move_iter());
+        let result = parser.parse();
+        assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn decodes_number() {
+        assert_decoded_eq([NumberValue(25)], Ok(Number(25)));
+    }
+
+    #[test]
+    fn decodes_bytestring() {
+        assert_decoded_eq([ByteStringValue(bytes("foo"))], Ok(ByteString(bytes("foo"))));
+    }
+
+    #[test]
+    fn decodes_empty_list() {
+        assert_decoded_eq([ListStart, ListEnd], Ok(List(~[])));
+    }
+
+    #[test]
+    fn decodes_list_with_elements() {
+        assert_decoded_eq([ListStart,
+                           NumberValue(1),
+                           ListEnd], Ok(List(~[Number(1)])));
+        assert_decoded_eq([ListStart,
+                           ByteStringValue(bytes("str")),
+                           NumberValue(11),
+                           ListEnd], Ok(List(~[ByteString(bytes("str")),
+                                               Number(11)])));
+    }
+
+    #[test]
+    fn decodes_nested_list() {
+        assert_decoded_eq([ListStart,
+                           ListStart,
+                           NumberValue(13),
+                           ListEnd,
+                           ByteStringValue(bytes("rust")),
+                           ListEnd],
+                           Ok(List(~[List(~[Number(13)]),
+                                     ByteString(bytes("rust"))])));
+    }
+
+    #[test]
+    fn decodes_empty_dict() {
+        assert_decoded_eq([DictStart, DictEnd], Ok(Dict(TreeMap::new())));
+    }
+
+    #[test]
+    fn decodes_dict_with_value() {
+        let mut map = TreeMap::new();
+        map.insert(Key(bytes("foo")), ByteString(bytes("rust")));
+        assert_decoded_eq([DictStart,
+                           DictKey(bytes("foo")),
+                           ByteStringValue(bytes("rust")),
+                           DictEnd], Ok(Dict(map)));
+    }
+
+    #[test]
+    fn decodes_dict_with_values() {
+        let mut map = TreeMap::new();
+        map.insert(Key(bytes("num")), Number(9));
+        map.insert(Key(bytes("str")), ByteString(bytes("abc")));
+        map.insert(Key(bytes("list")), List(~[Number(99)]));
+        assert_decoded_eq([DictStart,
+                           DictKey(bytes("num")),
+                           NumberValue(9),
+                           DictKey(bytes("str")),
+                           ByteStringValue(bytes("abc")),
+                           DictKey(bytes("list")),
+                           ListStart,
+                           NumberValue(99),
+                           ListEnd,
+                           DictEnd], Ok(Dict(map)));
+    }
+
+    #[test]
+    fn decodes_nested_dict() {
+        let mut inner = TreeMap::new();
+        inner.insert(Key(bytes("inner")), Number(2));
+        let mut outer = TreeMap::new();
+        outer.insert(Key(bytes("dict")), Dict(inner));
+        outer.insert(Key(bytes("outer")), Number(1));
+        assert_decoded_eq([DictStart,
+                           DictKey(bytes("outer")),
+                           NumberValue(1),
+                           DictKey(bytes("dict")),
+                           DictStart,
+                           DictKey(bytes("inner")),
+                           NumberValue(2),
+                           DictEnd,
+                           DictEnd], Ok(Dict(outer)));
+    }
+
+    #[test]
+    fn decode_error_on_parse_error() {
+        let err = Error{ pos: 1, msg: ~"error msg" };
+        let perr = ParseError(err.clone());
+        assert_decoded_eq([perr.clone()], Err(err.clone()));
+        assert_decoded_eq([NumberValue(1), perr.clone()], Err(err.clone()));
+        assert_decoded_eq([ListStart,
+                           perr.clone()], Err(err.clone()));
+        assert_decoded_eq([ListStart,
+                           ByteStringValue(bytes("foo")),
+                           perr.clone()], Err(err.clone()));
+        assert_decoded_eq([DictStart,
+                           perr.clone()], Err(err.clone()));
+        assert_decoded_eq([DictStart,
+                           DictKey(bytes("foo")),
+                           perr.clone()], Err(err.clone()));
     }
 }
