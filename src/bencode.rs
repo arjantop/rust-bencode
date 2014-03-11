@@ -588,7 +588,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
             Some(ListStart) => self.parse_list(current),
             Some(DictStart) => self.parse_dict(current),
             Some(ParseError(err)) => Err(err),
-            x => fail!("Unimplemented: {}", x)
+            x => fail!("Unreachable but got {}", x)
         };
         if self.depth == 0 {
             let next = self.reader.next();
@@ -674,63 +674,63 @@ mod test {
 
     #[test]
     fn encodes_number_zero() {
-        assert_eq!(Number(0).to_bytes(), bytes!("i0e").to_owned());
+        assert_eq!(Number(0).to_bytes(), bytes("i0e"));
     }
 
     #[test]
     fn encodes_positive_numbers() {
-        assert_eq!(Number(-5).to_bytes(), bytes!("i-5e").to_owned());
+        assert_eq!(Number(-5).to_bytes(), bytes("i-5e"));
         assert_eq!(Number(::std::i64::MIN).to_bytes(), format!("i{}e", ::std::i64::MIN).as_bytes().to_owned());
     }
 
     #[test]
     fn encodes_negative_numbers() {
-        assert_eq!(Number(5).to_bytes(), bytes!("i5e").to_owned());
+        assert_eq!(Number(5).to_bytes(), bytes("i5e"));
         assert_eq!(Number(::std::i64::MAX).to_bytes(), format!("i{}e", ::std::i64::MAX).as_bytes().to_owned());
     }
 
     #[test]
     fn encodes_empty_bytestring() {
-        assert_eq!(ByteString(~[]).to_bytes(), bytes!("0:").to_owned());
+        assert_eq!(ByteString(~[]).to_bytes(), bytes("0:"));
     }
 
     #[test]
     fn encodes_nonempty_bytestring() {
-        assert_eq!(ByteString((~"abc").into_bytes()).to_bytes(), bytes!("3:abc").to_owned());
-        assert_eq!(ByteString(~[0, 1, 2, 3]).to_bytes(), bytes!("4:") + ~[0u8, 1, 2, 3]);
+        assert_eq!(ByteString((~"abc").into_bytes()).to_bytes(), bytes("3:abc"));
+        assert_eq!(ByteString(~[0, 1, 2, 3]).to_bytes(), bytes("4:") + ~[0u8, 1, 2, 3]);
     }
 
     #[test]
     fn encodes_empty_list() {
-        assert_eq!(List(~[]).to_bytes(), bytes!("le").to_owned());
+        assert_eq!(List(~[]).to_bytes(), bytes("le"));
     }
 
     #[test]
     fn encodes_nonempty_list() {
-        assert_eq!(List(~[Number(1)]).to_bytes(), bytes!("li1ee").to_owned());
+        assert_eq!(List(~[Number(1)]).to_bytes(), bytes("li1ee"));
         assert_eq!(List(~[ByteString((~"foobar").into_bytes()),
-                          Number(-1)]).to_bytes(), bytes!("l6:foobari-1ee").to_owned());
+                          Number(-1)]).to_bytes(), bytes("l6:foobari-1ee"));
     }
 
     #[test]
     fn encodes_nested_list() {
-        assert_eq!(List(~[List(~[])]).to_bytes(), bytes!("llee").to_owned());
+        assert_eq!(List(~[List(~[])]).to_bytes(), bytes("llee"));
         let list = List(~[Number(1988), List(~[Number(2014)])]);
-        assert_eq!(list.to_bytes(), bytes!("li1988eli2014eee").to_owned());
+        assert_eq!(list.to_bytes(), bytes("li1988eli2014eee"));
     }
 
     #[test]
     fn encodes_empty_dict() {
-        assert_eq!(Dict(TreeMap::new()).to_bytes(), bytes!("de").to_owned());
+        assert_eq!(Dict(TreeMap::new()).to_bytes(), bytes("de"));
     }
 
     #[test]
     fn encodes_dict_with_items() {
         let mut m = TreeMap::new();
         m.insert(Key((~"k1").into_bytes()), Number(1));
-        assert_eq!(Dict(m.clone()).to_bytes(), bytes!("d2:k1i1ee").to_owned());
+        assert_eq!(Dict(m.clone()).to_bytes(), bytes("d2:k1i1ee"));
         m.insert(Key((~"k2").into_bytes()), ByteString(~[0, 0]));
-        assert_eq!(Dict(m.clone()).to_bytes(), bytes!("d2:k1i1e2:k22:\0\0e").to_owned());
+        assert_eq!(Dict(m.clone()).to_bytes(), bytes("d2:k1i1e2:k22:\0\0e"));
     }
 
     #[test]
@@ -739,7 +739,7 @@ mod test {
         let mut inner = TreeMap::new();
         inner.insert(Key((~"val").into_bytes()), ByteString(~[68, 0, 90]));
         outer.insert(Key((~"inner").into_bytes()), Dict(inner));
-        assert_eq!(Dict(outer).to_bytes(), bytes!("d5:innerd3:val3:D\0Zee").to_owned());
+        assert_eq!(Dict(outer).to_bytes(), bytes("d5:innerd3:val3:D\0Zee"));
     }
 
     #[test]
@@ -748,7 +748,7 @@ mod test {
         m.insert(Key((~"z").into_bytes()), Number(1));
         m.insert(Key((~"abd").into_bytes()), Number(3));
         m.insert(Key((~"abc").into_bytes()), Number(2));
-        assert_eq!(Dict(m).to_bytes(), bytes!("d3:abci2e3:abdi3e1:zi1ee").to_owned());
+        assert_eq!(Dict(m).to_bytes(), bytes("d3:abci2e3:abdi3e1:zi1ee"));
     }
 
     #[test]
@@ -762,7 +762,7 @@ mod test {
             };
             s.encode(&mut encoder);
         }
-        assert_eq!(writer.unwrap(), bytes!("d1:ai123e1:bl3:foo4:baaree").to_owned());
+        assert_eq!(writer.unwrap(), bytes("d1:ai123e1:bl3:foo4:baaree"));
     }
 
     #[test]
@@ -785,10 +785,10 @@ mod test {
             };
             s.encode(&mut encoder);
         }
-        assert_eq!(writer.unwrap(), bytes!("d1:ai1e2:aai2e2:abi3e1:zi4ee").to_owned());
+        assert_eq!(writer.unwrap(), bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee"));
     }
 
-    fn assert_stream_equal(encoded: &str, expected: &[BencodeEvent]) {
+    fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
         let mut parser = StreamingParser::new(encoded.bytes());
         let result = parser.to_owned_vec();
         assert_eq!(expected, result.as_slice());
@@ -802,181 +802,181 @@ mod test {
                 _ => {}
             };
             let msg = format!("Expecting 'i or 0-9 or l or d or e' but got '{}'", alphanum_to_str(n as char));
-            assert_stream_equal(unsafe { raw::from_utf8([n]) },
-                                [ParseError(Error{
-                                    pos: 0,
-                                    msg: msg })]);
+            assert_stream_eq(unsafe { raw::from_utf8([n]) },
+                            [ParseError(Error{
+                                pos: 0,
+                                msg: msg })]);
         }
     }
 
     #[test]
     fn parses_number_zero() {
-        assert_stream_equal("i0e", [NumberValue(0)]);
+        assert_stream_eq("i0e", [NumberValue(0)]);
     }
 
     #[test]
     fn parses_positive_numbers() {
-        assert_stream_equal("i5e", [NumberValue(5)]);
-        assert_stream_equal(format!("i{}e", ::std::i64::MAX), [NumberValue(::std::i64::MAX)]);
+        assert_stream_eq("i5e", [NumberValue(5)]);
+        assert_stream_eq(format!("i{}e", ::std::i64::MAX), [NumberValue(::std::i64::MAX)]);
     }
 
     #[test]
     fn parses_negative_numbers() {
-        assert_stream_equal("i-5e", [NumberValue(-5)]);
-        assert_stream_equal(format!("i{}e", ::std::i64::MIN), [NumberValue(::std::i64::MIN)]);
+        assert_stream_eq("i-5e", [NumberValue(-5)]);
+        assert_stream_eq(format!("i{}e", ::std::i64::MIN), [NumberValue(::std::i64::MIN)]);
     }
 
     #[test]
     fn parse_error_on_number_without_ending() {
-        assert_stream_equal("i10", [ParseError(Error{ pos: 3, msg: ~"Expecting 'e' but got 'EOF'" })]);
+        assert_stream_eq("i10", [ParseError(Error{ pos: 3, msg: ~"Expecting 'e' but got 'EOF'" })]);
     }
 
     #[test]
     fn parse_error_on_number_with_leading_zero() {
-        assert_stream_equal("i0215e", [ParseError(Error{ pos: 2, msg: ~"Expecting 'e' but got '2'" })]);
+        assert_stream_eq("i0215e", [ParseError(Error{ pos: 2, msg: ~"Expecting 'e' but got '2'" })]);
     }
 
     #[test]
     fn parse_error_on_empty_number() {
-        assert_stream_equal("ie", [ParseError(Error{ pos: 1, msg: ~"Expecting '0-9' but got 'e'" })]);
+        assert_stream_eq("ie", [ParseError(Error{ pos: 1, msg: ~"Expecting '0-9' but got 'e'" })]);
     }
 
     #[test]
     fn parse_error_on_more_than_one_value_outside_of_containers() {
         let msg = ~"Only one value allowed outside of containers";
-        assert_stream_equal("i1ei2e", [NumberValue(1), ParseError(Error{ pos: 3, msg: msg.clone() })]);
-        assert_stream_equal("i10eli2ee", [NumberValue(10), ParseError(Error{ pos: 4, msg: msg.clone() })]);
-        assert_stream_equal("1:ade", [ByteStringValue(bytes!("a").to_owned()), ParseError(Error{ pos: 3, msg: msg.clone() })]);
-        assert_stream_equal("3:foo3:bar", [ByteStringValue(bytes!("foo").to_owned()),
-                                           ParseError(Error{ pos: 5, msg: msg.clone() })]);
+        assert_stream_eq("i1ei2e", [NumberValue(1), ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_eq("i10eli2ee", [NumberValue(10), ParseError(Error{ pos: 4, msg: msg.clone() })]);
+        assert_stream_eq("1:ade", [ByteStringValue(bytes("a")), ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_eq("3:foo3:bar", [ByteStringValue(bytes("foo")),
+                                        ParseError(Error{ pos: 5, msg: msg.clone() })]);
     }
 
     #[test]
     fn parses_empty_bytestring() {
-        assert_stream_equal("0:", [ByteStringValue(~[])]);
+        assert_stream_eq("0:", [ByteStringValue(~[])]);
     }
 
     #[test]
     fn parses_short_bytestring() {
-        assert_stream_equal("6:abcdef", [ByteStringValue(bytes!("abcdef").to_owned())]);
+        assert_stream_eq("6:abcdef", [ByteStringValue(bytes("abcdef"))]);
     }
 
     #[test]
     fn parses_long_bytestring() {
         let long = "baz".repeat(10);
-        assert_stream_equal(format!("{}:{}", long.len(), long), [ByteStringValue(long.as_bytes().to_owned())]);
+        assert_stream_eq(format!("{}:{}", long.len(), long), [ByteStringValue(long.as_bytes().to_owned())]);
     }
 
     #[test]
     fn parse_error_on_too_short_data() {
-        assert_stream_equal("5:abcd", [ParseError(Error { pos: 6, msg: ~"Expecting 5 bytes but only got 4" })]);
+        assert_stream_eq("5:abcd", [ParseError(Error { pos: 6, msg: ~"Expecting 5 bytes but only got 4" })]);
     }
 
     #[test]
     fn parse_error_on_malformed_bytestring() {
-        assert_stream_equal("3abc", [ParseError(Error { pos: 1, msg: ~"Expecting ':' but got 'a'" })]);
+        assert_stream_eq("3abc", [ParseError(Error { pos: 1, msg: ~"Expecting ':' but got 'a'" })]);
     }
 
     #[test]
     fn parse_empty_list() {
-        assert_stream_equal("le", [ListStart, ListEnd]);
+        assert_stream_eq("le", [ListStart, ListEnd]);
     }
 
     #[test]
     fn parses_list_with_number() {
-        assert_stream_equal("li2006ee", [ListStart, NumberValue(2006), ListEnd]);
+        assert_stream_eq("li2006ee", [ListStart, NumberValue(2006), ListEnd]);
     }
 
     #[test]
     fn parses_list_with_bytestring() {
-        assert_stream_equal("l9:foobarbaze", [ListStart, ByteStringValue(bytes!("foobarbaz").to_owned()), ListEnd]);
+        assert_stream_eq("l9:foobarbaze", [ListStart, ByteStringValue(bytes("foobarbaz")), ListEnd]);
     }
 
     #[test]
     fn parses_list_with_mixed_elements() {
-        assert_stream_equal("l4:rusti2006ee",
-                            [ListStart,
-                             ByteStringValue(bytes!("rust").to_owned()),
-                             NumberValue(2006),
-                             ListEnd]);
+        assert_stream_eq("l4:rusti2006ee",
+                         [ListStart,
+                          ByteStringValue(bytes("rust")),
+                          NumberValue(2006),
+                          ListEnd]);
     }
 
     #[test]
     fn parses_nested_lists() {
-        assert_stream_equal("li1983el3:c++e3:oope",
-                            [ListStart,
-                            NumberValue(1983),
-                            ListStart,
-                            ByteStringValue(bytes!("c++").to_owned()),
-                            ListEnd,
-                            ByteStringValue(bytes!("oop").to_owned()),
-                            ListEnd]);
+        assert_stream_eq("li1983el3:c++e3:oope",
+                         [ListStart,
+                          NumberValue(1983),
+                          ListStart,
+                          ByteStringValue(bytes("c++")),
+                          ListEnd,
+                          ByteStringValue(bytes("oop")),
+                          ListEnd]);
     }
 
     #[test]
     fn parses_empty_dict() {
-        assert_stream_equal("de", [DictStart, DictEnd]);
+        assert_stream_eq("de", [DictStart, DictEnd]);
     }
 
     #[test]
     fn parses_dict_with_number_value() {
-        assert_stream_equal("d3:fooi2006ee",
-                            [DictStart,
-                             DictKey(bytes!("foo").to_owned()),
-                             NumberValue(2006),
-                             DictEnd])
+        assert_stream_eq("d3:fooi2006ee",
+                         [DictStart,
+                          DictKey(bytes("foo")),
+                          NumberValue(2006),
+                          DictEnd])
     }
 
     #[test]
     fn parses_dict_with_bytestring_value() {
-        assert_stream_equal("d3:foo4:2006e",
-                            [DictStart,
-                             DictKey(bytes!("foo").to_owned()),
-                             ByteStringValue(bytes!("2006").to_owned()),
-                             DictEnd])
+        assert_stream_eq("d3:foo4:2006e",
+                         [DictStart,
+                          DictKey(bytes("foo")),
+                          ByteStringValue(bytes("2006")),
+                          DictEnd])
     }
 
     #[test]
     fn parses_dict_with_list_value() {
-        assert_stream_equal("d3:fooli2006eee",
-                            [DictStart,
-                             DictKey(bytes!("foo").to_owned()),
-                             ListStart,
-                             NumberValue(2006),
-                             ListEnd,
-                             DictEnd])
+        assert_stream_eq("d3:fooli2006eee",
+                         [DictStart,
+                          DictKey(bytes("foo")),
+                          ListStart,
+                          NumberValue(2006),
+                          ListEnd,
+                          DictEnd])
     }
 
     #[test]
     fn parses_nested_dicts() {
-        assert_stream_equal("d3:food3:bari2006eee",
-                            [DictStart,
-                             DictKey(bytes!("foo").to_owned()),
-                             DictStart,
-                             DictKey(bytes!("bar").to_owned()),
-                             NumberValue(2006),
-                             DictEnd,
-                             DictEnd])
+        assert_stream_eq("d3:food3:bari2006eee",
+                         [DictStart,
+                          DictKey(bytes("foo")),
+                          DictStart,
+                          DictKey(bytes("bar")),
+                          NumberValue(2006),
+                          DictEnd,
+                          DictEnd])
     }
 
     #[test]
     fn parse_error_on_key_of_of_wrong_type() {
-        assert_stream_equal("di2006ei1ee",
-                            [DictStart,
-                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: integer" })]);
-        assert_stream_equal("dleei1ee",
-                            [DictStart,
-                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: list" })]);
-        assert_stream_equal("ddei1ee",
-                            [DictStart,
-                             ParseError(Error{ pos: 1, msg: ~"Wrong key type: dict" })]);
+        assert_stream_eq("di2006ei1ee",
+                         [DictStart,
+                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: integer" })]);
+        assert_stream_eq("dleei1ee",
+                         [DictStart,
+                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: list" })]);
+        assert_stream_eq("ddei1ee",
+                         [DictStart,
+                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: dict" })]);
     }
 
     #[test]
     fn parse_error_on_unmatched_value_ending() {
         let msg = ~"Unmatched value ending";
-        assert_stream_equal("e", [ParseError(Error{ pos: 1, msg: msg.clone() })]);
-        assert_stream_equal("lee", [ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_eq("e", [ParseError(Error{ pos: 1, msg: msg.clone() })]);
+        assert_stream_eq("lee", [ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
     }
 
     fn assert_decoded_eq(events: &[BencodeEvent], expected: Result<Bencode, Error>) {
