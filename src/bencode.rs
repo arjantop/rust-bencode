@@ -102,6 +102,26 @@ pub trait ToBencode {
 pub trait FromBencode {
     fn from_bencode(&Bencode) -> Option<Self>;
 }
+impl ToBencode for () {
+    fn to_bencode(&self) -> Bencode {
+        ByteString(~[])
+    }
+}
+
+impl FromBencode for () {
+    fn from_bencode(bencode: &Bencode) -> Option<()> {
+        match bencode {
+            &ByteString(ref v) => {
+                if v.len() == 0 {
+                    Some(())
+                } else {
+                    None
+                }
+            }
+            _ => None
+        }
+    }
+}
 
 macro_rules! derive_num_to_bencode(($t:ty) => (
     impl ToBencode for $t {
@@ -150,8 +170,94 @@ derive_num_from_bencode!(u32)
 derive_num_to_bencode!(u64)
 derive_num_from_bencode!(u64)
 
+impl ToBencode for f32 {
+    fn to_bencode(&self) -> Bencode {
+        ByteString(std::f32::to_str_hex(*self).as_bytes().into_owned())
+    }
+}
+
+impl FromBencode for f32 {
+    fn from_bencode(bencode: &Bencode) -> Option<f32> {
+        match bencode {
+            &ByteString(ref v)  => {
+                match str::from_utf8(v.as_slice()) {
+                    Some(s) => std::f32::from_str_hex(s),
+                    None => None
+                }
+            }
+            _ => None
+        }
+    }
+}
+
+impl ToBencode for f64 {
+    fn to_bencode(&self) -> Bencode {
+        ByteString(std::f64::to_str_hex(*self).as_bytes().into_owned())
+    }
+}
+
+impl FromBencode for f64 {
+    fn from_bencode(bencode: &Bencode) -> Option<f64> {
+        match bencode {
+            &ByteString(ref v)  => {
+                match str::from_utf8(v.as_slice()) {
+                    Some(s) => std::f64::from_str_hex(s),
+                    None => None
+                }
+            }
+            _ => None
+        }
+    }
+}
+
+impl ToBencode for bool {
+    fn to_bencode(&self) -> Bencode {
+        if *self {
+            ByteString(bytes!("true").to_owned())
+        } else {
+            ByteString(bytes!("false").to_owned())
+        }
+    }
+}
+
+impl FromBencode for bool {
+    fn from_bencode(bencode: &Bencode) -> Option<bool> {
+        match bencode {
+            &ByteString(ref v) => {
+                if v.as_slice() == bytes!("true") {
+                    Some(true)
+                } else if v.as_slice() == bytes!("false") {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            _ => None
+        }
+    }
+}
+
+impl ToBencode for char {
+    fn to_bencode(&self) -> Bencode {
+        ByteString(self.to_str().into_bytes())
+    }
+}
+
+impl FromBencode for char {
+    fn from_bencode(bencode: &Bencode) -> Option<char> {
+        let s: Option<~str> = FromBencode::from_bencode(bencode);
+        s.and_then(|s| {
+            if s.char_len() == 1 {
+                Some(s.char_at(0))
+            } else {
+                None
+            }
+        })
+    }
+}
+
 impl ToBencode for ~str {
-    fn to_bencode(&self) -> Bencode { ByteString((*self).as_bytes().into_owned()) }
+    fn to_bencode(&self) -> Bencode { ByteString(self.clone().into_bytes()) }
 }
 
 impl FromBencode for ~str {
@@ -240,7 +346,7 @@ impl<'a> Encoder<'a> {
 }
 
 impl<'a> serialize::Encoder for Encoder<'a> {
-    fn emit_nil(&mut self) { unimplemented!(); }
+    fn emit_nil(&mut self) { tryenc!(write!(self.get_writer(), "0:")) }
 
     fn emit_uint(&mut self, v: uint) { self.emit_i64(v as i64); }
 
@@ -264,14 +370,19 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_bool(&mut self, v: bool) {
         if v {
-            tryenc!(write!(self.get_writer(), "true"));
+            self.emit_str("true");
         } else {
-            tryenc!(write!(self.get_writer(), "false"));
+            self.emit_str("false");
         }
     }
 
-    fn emit_f64(&mut self, _v: f64) { unimplemented!(); }
-    fn emit_f32(&mut self, _v: f32) { unimplemented!(); }
+    fn emit_f32(&mut self, v: f32) {
+        self.emit_str(std::f32::to_str_hex(v));
+    }
+
+    fn emit_f64(&mut self, v: f64) {
+        self.emit_str(std::f64::to_str_hex(v));
+    }
 
     fn emit_char(&mut self, v: char) { self.emit_str(str::from_char(v)); }
 
@@ -648,18 +759,110 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
     }
 }
 
+pub struct Decoder<'a> {
+    priv stack: Vec<&'a Bencode>,
+}
+
+impl<'a> Decoder<'a> {
+    pub fn new(bencode: &'a Bencode) -> Decoder<'a> {
+        Decoder {
+            stack: Vec::from_slice([bencode])
+        }
+    }
+
+    fn try_read<T: FromBencode>(&mut self) -> T {
+        self.stack.pop().and_then(|b| FromBencode::from_bencode(b)).unwrap()
+    }
+}
+
+impl<'a> serialize::Decoder for Decoder<'a> {
+    fn read_nil(&mut self) { self.try_read() }
+
+    fn read_uint(&mut self) -> uint { self.try_read() }
+
+    fn read_u8(&mut self) -> u8 { self.try_read() }
+
+    fn read_u16(&mut self) -> u16 { self.try_read() }
+
+    fn read_u32(&mut self) -> u32 { self.try_read() }
+
+    fn read_u64(&mut self) -> u64 { self.try_read() }
+
+    fn read_int(&mut self) -> int { self.try_read() }
+
+    fn read_i8(&mut self) -> i8 { self.try_read() }
+
+    fn read_i16(&mut self) -> i16 { self.try_read() }
+
+    fn read_i32(&mut self) -> i32 { self.try_read() }
+
+    fn read_i64(&mut self) -> i64 { self.try_read() } 
+
+    fn read_bool(&mut self) -> bool { self.try_read() }
+
+    fn read_f32(&mut self) -> f32 { self.try_read() }
+
+    fn read_f64(&mut self) -> f64 { self.try_read() }
+
+    fn read_char(&mut self) -> char { self.try_read() }
+
+    fn read_str(&mut self) -> ~str {
+        match self.stack.pop() {
+            Some(&ByteString(ref v)) => {
+                match str::from_utf8_owned(v.clone()) {
+                    Some(s) => s,
+                    _ => fail!()
+                }
+            }
+            _ => fail!()
+        }
+    }
+
+    fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
+    fn read_enum_variant_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_enum_struct_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
+    fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_struct<T>(&mut self, _s_name: &str, _len: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_struct_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
+    fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
+    fn read_tuple_struct_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_option<T>(&mut self, _f: |&mut Decoder<'a>, bool| -> T) -> T { unimplemented!(); }
+
+    fn read_seq<T>(&mut self, f: |&mut Decoder<'a>, uint| -> T) -> T {
+        let len = match self.stack.pop() {
+            Some(&List(ref list)) => {
+                for v in list.rev_iter() {
+                    self.stack.push(v);
+                }
+                list.len()
+            }
+            _ => fail!()
+        };
+        f(self, len)
+    }
+
+    fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T { f(self) }
+
+    fn read_map<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
+    fn read_map_elt_key<T>(&mut self, _idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_map_elt_val<T>(&mut self, _idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+}
+
 #[cfg(test)]
 mod test {
     use std::io;
     use std::str::raw;
-    use serialize::{Encodable};
+    use serialize::{Encodable, Decodable};
     use collections::treemap::TreeMap;
 
     use super::{Bencode, Error};
     use super::{Encoder, ByteString, List, Number, Dict, Key};
     use super::{StreamingParser, BencodeEvent, NumberValue, ByteStringValue,
                 ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
-    use super::Parser;
+    use super::{Parser, Decoder};
     use super::alphanum_to_str;
 
     #[deriving(Eq, Show, Encodable)]
@@ -667,6 +870,15 @@ mod test {
         a: uint,
         b: ~[~str],
     }
+
+    macro_rules! assert_encoding(($e:expr, $expected:expr) => ({
+        let mut w = io::MemWriter::new();
+        {
+            let mut encoder = Encoder::new(&mut w);
+            $e.encode(&mut encoder);
+        }
+        assert_eq!($expected, w.unwrap());
+    }))
 
     fn bytes(s: &str) -> ~[u8] {
         s.as_bytes().to_owned()
@@ -687,6 +899,33 @@ mod test {
     fn encodes_negative_numbers() {
         assert_eq!(Number(5).to_bytes(), bytes("i5e"));
         assert_eq!(Number(::std::i64::MAX).to_bytes(), format!("i{}e", ::std::i64::MAX).as_bytes().to_owned());
+    }
+
+    #[test]
+    fn encodes_lower_letter_char() {
+        assert_encoding!('a', bytes("1:a"));
+        assert_encoding!('c', bytes("1:c"));
+        assert_encoding!('z', bytes("1:z"));
+    }
+
+    #[test]
+    fn encodes_upper_letter_char() {
+        assert_encoding!('A', bytes("1:A"));
+        assert_encoding!('C', bytes("1:C"));
+        assert_encoding!('Z', bytes("1:Z"));
+    }
+
+    #[test]
+    fn encodes_multibyte_char() {
+        assert_encoding!('ệ', bytes("3:ệ"));
+        assert_encoding!('虎', bytes("3:虎"));
+    }
+
+    #[test]
+    fn encodes_control_char() {
+        assert_encoding!('\n', bytes("1:\n"));
+        assert_encoding!('\r', bytes("1:\r"));
+        assert_encoding!('\0', bytes("1:\0"));
     }
 
     #[test]
@@ -1091,5 +1330,146 @@ mod test {
         assert_decoded_eq([DictStart,
                            DictKey(bytes("foo")),
                            perr.clone()], Err(err.clone()));
+    }
+
+    macro_rules! assert_identity(($value:expr) => (
+        {
+            let mut writer = io::MemWriter::new();
+            {
+                let mut encoder = Encoder::new(&mut writer);
+                $value.encode(&mut encoder);
+            }
+            let mut reader = io::MemReader::new(writer.unwrap());
+            let streaming_parser = StreamingParser::new(reader.bytes());
+            let mut parser = Parser::new(streaming_parser);
+            let bencode = parser.parse().unwrap();
+            let mut decoder = Decoder::new(&bencode);
+            let result = Decodable::decode(&mut decoder);
+            assert_eq!($value, result);
+        }
+    ))
+
+    #[test]
+    fn identity_encode_decode_unit() {
+        assert_identity!(());
+    }
+
+    #[test]
+    fn identity_encode_decode_int() {
+        assert_identity!(99i);
+        assert_identity!(::std::int::MIN);
+        assert_identity!(::std::int::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_i8() {
+        assert_identity!(99i8);
+        assert_identity!(::std::i8::MIN);
+        assert_identity!(::std::i8::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_i16() {
+        assert_identity!(99i16);
+        assert_identity!(::std::i16::MIN);
+        assert_identity!(::std::i16::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_i32() {
+        assert_identity!(99i32);
+        assert_identity!(::std::i32::MIN);
+        assert_identity!(::std::i32::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_i64() {
+        assert_identity!(99i64);
+        assert_identity!(::std::i64::MIN);
+        assert_identity!(::std::i64::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_uint() {
+        assert_identity!(99u);
+        assert_identity!(::std::uint::MIN);
+        assert_identity!(::std::uint::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_u8() {
+        assert_identity!(99u8);
+        assert_identity!(::std::u8::MIN);
+        assert_identity!(::std::u8::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_u16() {
+        assert_identity!(99u16);
+        assert_identity!(::std::u16::MIN);
+        assert_identity!(::std::u16::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_u32() {
+        assert_identity!(99u32);
+        assert_identity!(::std::u32::MIN);
+        assert_identity!(::std::u32::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_u64() {
+        assert_identity!(99u64);
+        assert_identity!(::std::u64::MIN);
+        assert_identity!(::std::u64::MAX);
+    }
+
+    #[test]
+    fn identity_encode_decode_f32() {
+        assert_identity!(99.0f32);
+        assert_identity!(99.13f32);
+        assert_identity!(::std::f32::MIN_VALUE as f32);
+        assert_identity!(::std::f32::MAX_VALUE as f32);
+        assert_identity!(-::std::f32::MIN_VALUE as f32);
+        assert_identity!(-::std::f32::MAX_VALUE as f32);
+    }
+
+    #[test]
+    fn identity_encode_decode_f64() {
+        assert_identity!(99.0f64);
+        assert_identity!(99.13f64);
+        assert_identity!(::std::f64::MIN_VALUE);
+        assert_identity!(::std::f64::MAX_VALUE);
+        assert_identity!(-::std::f64::MIN_VALUE);
+        assert_identity!(-::std::f64::MAX_VALUE);
+    }
+
+    #[test]
+    fn identity_encode_decode_bool() {
+        assert_identity!(true);
+        assert_identity!(false);
+    }
+
+    #[test]
+    fn identity_encode_decode_char() {
+        assert_identity!('a');
+        assert_identity!('A');
+        assert_identity!('\n');
+        assert_identity!('\0');
+    }
+
+    #[test]
+    fn identity_encode_decode_str() {
+        assert_identity!(~"");
+        assert_identity!(~"abc");
+        assert_identity!(~"Löwe 老虎 Léopard");
+    }
+
+    #[test]
+    fn identity_encode_decode_owned_vec() {
+        let empty: ~[int] = ~[];
+        assert_identity!(empty);
+        assert_identity!(~[~"a", ~"ab", ~"abc"]);
+        assert_identity!(~[1.1, 1.2, 1.3]);
     }
 }
