@@ -291,6 +291,21 @@ impl<T: FromBencode> FromBencode for ~[T] {
     }
 }
 
+pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
+    from_owned(buf.to_owned())
+}
+
+pub fn from_owned(buf: ~[u8]) -> Result<Bencode, Error> {
+    let mut reader = io::MemReader::new(buf);
+    from_iter(reader.bytes())
+}
+
+pub fn from_iter<T: Iterator<u8>>(iter: T) -> Result<Bencode, Error> {
+    let streaming_parser = StreamingParser::new(iter);
+    let mut parser = Parser::new(streaming_parser);
+    parser.parse()
+}
+
 macro_rules! tryenc(($e:expr) => (
     match $e {
         Ok(e) => e,
@@ -852,13 +867,13 @@ impl<'a> serialize::Decoder for Decoder<'a> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use std::io;
     use std::str::raw;
     use serialize::{Encodable, Decodable};
     use collections::treemap::TreeMap;
 
-    use super::{Bencode, Error};
+    use super::{Bencode, ToBencode, Error};
     use super::{Encoder, ByteString, List, Number, Dict, Key};
     use super::{StreamingParser, BencodeEvent, NumberValue, ByteStringValue,
                 ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
@@ -871,14 +886,58 @@ mod test {
         b: ~[~str],
     }
 
-    macro_rules! assert_encoding(($e:expr, $expected:expr) => ({
-        let mut w = io::MemWriter::new();
-        {
-            let mut encoder = Encoder::new(&mut w);
-            $e.encode(&mut encoder);
-        }
-        assert_eq!($expected, w.unwrap());
+    macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
+        let v = $value;
+        let result = Encoder::buffer_encode(&v);
+        assert_eq!($expected, result);
     }))
+
+    macro_rules! gen_encode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
+        #[test]
+        fn $name() {
+            $(assert_encoding!($val, $enc);)+
+        }
+    })
+
+    macro_rules! gen_tobencode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
+        #[test]
+        fn $name() {
+            $({
+                let value = $val;
+                let bencode = value.to_bencode();
+                let enc_bencode = bencode.to_bytes();
+                let enc = Encoder::buffer_encode(&value);
+                assert_eq!(enc, enc_bencode);
+            };)+
+        }
+    })
+
+    macro_rules! assert_identity(($value:expr) => ({
+        let value = $value;
+        let encoded = Encoder::buffer_encode(&value);
+        let bencode = super::from_owned(encoded).unwrap();
+        let mut decoder = Decoder::new(&bencode);
+        let result = Decodable::decode(&mut decoder);
+        assert_eq!(value, result);
+    }))
+
+    macro_rules! gen_identity_test(($name:ident, $($val:expr),+) => {
+        #[test]
+        fn $name() {
+            $(assert_identity!($val);)+
+        }
+    })
+
+    macro_rules! gen_encode_identity_test(($name_enc:ident, $name_ident:ident, $($val:expr -> $enc:expr),+) => {
+        gen_encode_test!($name_enc, $($val -> $enc),+)
+        gen_identity_test!($name_ident, $($val),+)
+    })
+
+    macro_rules! gen_complete_test(($name_enc:ident, $name_benc:ident, $name_ident:ident, $($val:expr -> $enc:expr),+) => {
+        gen_encode_test!($name_enc, $($val -> $enc),+)
+        gen_tobencode_test!($name_benc, $($val -> $enc),+)
+        gen_identity_test!($name_ident, $($val),+)
+    })
 
     fn bytes(s: &str) -> ~[u8] {
         s.as_bytes().to_owned()
@@ -901,32 +960,32 @@ mod test {
         assert_eq!(Number(::std::i64::MAX).to_bytes(), format!("i{}e", ::std::i64::MAX).as_bytes().to_owned());
     }
 
-    #[test]
-    fn encodes_lower_letter_char() {
-        assert_encoding!('a', bytes("1:a"));
-        assert_encoding!('c', bytes("1:c"));
-        assert_encoding!('z', bytes("1:z"));
-    }
+    gen_complete_test!(encodes_lower_letter_char,
+                       tobencode_lower_letter_char,
+                       identity_lower_letter_char,
+                       'a' -> bytes("1:a"),
+                       'c' -> bytes("1:c"),
+                       'z' -> bytes("1:z"))
 
-    #[test]
-    fn encodes_upper_letter_char() {
-        assert_encoding!('A', bytes("1:A"));
-        assert_encoding!('C', bytes("1:C"));
-        assert_encoding!('Z', bytes("1:Z"));
-    }
+    gen_complete_test!(encodes_upper_letter_char,
+                       tobencode_upper_letter_char,
+                       identity_upper_letter_char,
+                       'A' -> bytes("1:A"),
+                       'C' -> bytes("1:C"),
+                       'Z' -> bytes("1:Z"))
 
-    #[test]
-    fn encodes_multibyte_char() {
-        assert_encoding!('ệ', bytes("3:ệ"));
-        assert_encoding!('虎', bytes("3:虎"));
-    }
+    gen_complete_test!(encodes_multibyte_char,
+                       tobencode_multibyte_char,
+                       identity_multibyte_char,
+                       'ệ' -> bytes("3:ệ"),
+                       '虎' -> bytes("3:虎"))
 
-    #[test]
-    fn encodes_control_char() {
-        assert_encoding!('\n', bytes("1:\n"));
-        assert_encoding!('\r', bytes("1:\r"));
-        assert_encoding!('\0', bytes("1:\0"));
-    }
+    gen_complete_test!(encodes_control_char,
+                       tobencode_control_char,
+                       identity_control_char,
+                       '\n' -> bytes("1:\n"),
+                       '\r' -> bytes("1:\r"),
+                       '\0' -> bytes("1:\0"))
 
     #[test]
     fn encodes_empty_bytestring() {
@@ -1332,23 +1391,6 @@ mod test {
                            perr.clone()], Err(err.clone()));
     }
 
-    macro_rules! assert_identity(($value:expr) => (
-        {
-            let mut writer = io::MemWriter::new();
-            {
-                let mut encoder = Encoder::new(&mut writer);
-                $value.encode(&mut encoder);
-            }
-            let mut reader = io::MemReader::new(writer.unwrap());
-            let streaming_parser = StreamingParser::new(reader.bytes());
-            let mut parser = Parser::new(streaming_parser);
-            let bencode = parser.parse().unwrap();
-            let mut decoder = Decoder::new(&bencode);
-            let result = Decodable::decode(&mut decoder);
-            assert_eq!($value, result);
-        }
-    ))
-
     #[test]
     fn identity_encode_decode_unit() {
         assert_identity!(());
@@ -1451,14 +1493,6 @@ mod test {
     }
 
     #[test]
-    fn identity_encode_decode_char() {
-        assert_identity!('a');
-        assert_identity!('A');
-        assert_identity!('\n');
-        assert_identity!('\0');
-    }
-
-    #[test]
     fn identity_encode_decode_str() {
         assert_identity!(~"");
         assert_identity!(~"abc");
@@ -1471,5 +1505,50 @@ mod test {
         assert_identity!(empty);
         assert_identity!(~[~"a", ~"ab", ~"abc"]);
         assert_identity!(~[1.1, 1.2, 1.3]);
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    extern crate test;
+
+    use self::test::BenchHarness;
+
+    use std::io;
+    use std::vec;
+
+    use serialize::{Encodable, Decodable};
+
+    use super::{Encoder, Decoder, Parser, StreamingParser};
+
+    #[bench]
+    fn encode_large_vec_of_uint(bh: &mut BenchHarness) {
+        let v = vec::from_fn(100, |n| n);
+        bh.iter(|| {
+            let mut w = io::MemWriter::with_capacity(v.len() * 10);
+            {
+                let mut enc = Encoder::new(&mut w);
+                v.encode(&mut enc);
+            }
+            w.unwrap()
+        });
+        bh.bytes = v.len() as u64 * 4;
+    }
+
+
+    #[bench]
+    fn decode_large_vec_of_uint(bh: &mut BenchHarness) {
+        let v = vec::from_fn(100, |n| n);
+        let b = Encoder::buffer_encode(&v);
+        bh.iter(|| {
+            let mut reader = io::MemReader::new(b.clone());
+            let streaming_parser = StreamingParser::new(reader.bytes());
+            let mut parser = Parser::new(streaming_parser);
+            let bencode = parser.parse().unwrap();
+            let mut decoder = Decoder::new(&bencode);
+            let result: ~[uint] = Decodable::decode(&mut decoder);
+            result
+        });
+        bh.bytes = b.len() as u64 * 4;
     }
 }

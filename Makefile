@@ -20,3 +20,6 @@ clean:
 test: $(TESTDIR)
 	${RUSTC} ${RUSTFLAGS} --test -o $(TESTDIR)/test src/bencode.rs
 	./$(TESTDIR)/test
+
+bench: test
+	./$(TESTDIR)/test --bench
