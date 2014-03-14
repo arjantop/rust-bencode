@@ -20,6 +20,7 @@ use std::io;
 use std::fmt;
 use std::str;
 use std::str::raw;
+use std::vec;
 use std::vec_ng::Vec;
 
 use serialize::{Encodable};
@@ -318,20 +319,18 @@ macro_rules! tryenc(($e:expr) => (
 
 pub struct Encoder<'a> {
     priv writer: &'a mut io::Writer,
-    priv depth: uint,
     priv current_writer: io::MemWriter,
     priv error: io::IoResult<()>,
-    priv dict_stack: Vec<TreeMap<Key, ~[u8]>>,
+    priv stack: Vec<TreeMap<Key, ~[u8]>>,
 }
 
 impl<'a> Encoder<'a> {
     pub fn new(writer: &'a mut io::Writer) -> Encoder<'a> {
         Encoder {
             writer: writer,
-            depth: 0,
             current_writer: io::MemWriter::new(),
             error: Ok(()),
-            dict_stack: Vec::new()
+            stack: Vec::new()
         }
     }
 
@@ -345,7 +344,7 @@ impl<'a> Encoder<'a> {
     }
 
     fn get_writer(&'a mut self) -> &'a mut io::Writer {
-        if self.depth == 0 {
+        if self.stack.len() == 0 {
             &mut self.writer as &'a mut io::Writer
         } else {
             &mut self.current_writer as &'a mut io::Writer
@@ -353,10 +352,12 @@ impl<'a> Encoder<'a> {
     }
 
     fn encode_dict(&mut self, dict: &TreeMap<Key, ~[u8]>) {
+        tryenc!(write!(self.get_writer(), "d"));
         for (key, value) in dict.iter() {
             key.encode(self);
-            tryenc!(self.get_writer().write(*value));
+            tryenc!(self.get_writer().write(value.as_slice()));
         }
+        tryenc!(write!(self.get_writer(), "e"));
     }
 }
 
@@ -413,20 +414,17 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_enum_struct_variant_field(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_struct(&mut self, _name: &str, _len: uint, f: |&mut Encoder<'a>|) {
-        tryenc!(write!(self.get_writer(), "d"));
-        self.depth += 1;
-        self.dict_stack.push(TreeMap::new());
+        self.stack.push(TreeMap::new());
         f(self);
-        self.depth -= 1;
-        let dict = self.dict_stack.pop().unwrap();
+        let dict = self.stack.pop().unwrap();
         self.encode_dict(&dict);
-        tryenc!(write!(self.get_writer(), "e"));
     }
 
     fn emit_struct_field(&mut self, f_name: &str, _f_idx: uint, f: |&mut Encoder<'a>|) {
+        let mut data = std::mem::replace(&mut self.current_writer, io::MemWriter::new());
         f(self);
-        let data = std::mem::replace(&mut self.current_writer, io::MemWriter::new());
-        let dict = self.dict_stack.mut_last().unwrap();
+        std::mem::swap(&mut self.current_writer, &mut data);
+        let dict = self.stack.mut_last().unwrap();
         dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
     }
 
@@ -482,9 +480,10 @@ pub struct Error {
 }
 
 #[deriving(Show, Eq, Clone)]
-enum ExpectedToken {
-    ValueToken,
-    KeyToken
+enum BencodePosition {
+    ListPosition,
+    KeyPosition,
+    ValuePosition
 }
 
 pub struct StreamingParser<T> {
@@ -493,14 +492,19 @@ pub struct StreamingParser<T> {
     priv decoded: u32,
     priv end: bool,
     priv curr: Option<u8>,
-    priv nesting: Vec<BencodeEvent>,
-    priv expected: ExpectedToken
+    priv stack: Vec<BencodePosition>,
 }
 
 macro_rules! expect(($ch:pat, $ex:expr) => (
     match self.curr_char() {
         Some($ch) => self.next_byte(),
         _ => return self.error($ex)
+    }
+))
+
+macro_rules! check_nesting(() => (
+    if self.decoded > 0 && self.stack.len() == 0 {
+        return try!(self.error_msg(~"Only one value allowed outside of containers"))
     }
 ))
 
@@ -513,8 +517,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
             decoded: 0,
             end: false,
             curr: next,
-            nesting: Vec::new(),
-            expected: ValueToken
+            stack: Vec::new()
         }
     }
 
@@ -525,7 +528,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     }
     
     fn next_bytes(&mut self, len: uint) -> Result<~[u8], Error> {
-        let mut bytes = ~[];
+        let mut bytes = vec::with_capacity(len);
         for _ in range(0, len) {
             match self.curr {
                 Some(x) =>  bytes.push(x),
@@ -601,82 +604,91 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         let bytes = try!(self.next_bytes(len as uint));
         Ok(bytes)
     }
-}
 
-macro_rules! try_result(($e:expr) => (
-    match $e {
-        Ok(e) => Some(e),
-        Err(err) => {
-            self.end = true;
-            return Some(ParseError(err))
+    fn parse_end(&mut self) -> Result<BencodeEvent, Error> {
+        self.next_byte();
+        match self.stack.pop() {
+            Some(ListPosition) => Ok(ListEnd),
+            Some(ValuePosition) => {
+                Ok(DictEnd)
+            }
+            _ => return self.error_msg(~"Unmatched value ending")
         }
     }
-))
 
-macro_rules! check_nesting(() => (
-    if self.decoded > 0 && self.nesting.len() == 0 {
-        return try_result!(self.error_msg(~"Only one value allowed outside of containers"))
+    fn parse_key(&mut self) -> Result<BencodeEvent, Error> {
+        check_nesting!();
+        match self.curr_char() {
+            Some('0' .. '9') => {
+                self.decoded += 1;
+                let res = try!(self.parse_bytestring());
+                Ok(DictKey(res))
+            }
+            Some('e') => self.parse_end(),
+            _ => self.error(~"0-9 or e")
+        }
     }
-))
+
+    fn parse_event(&mut self) -> Result<BencodeEvent, Error> {
+        match self.curr_char() {
+            Some('i') => {
+                check_nesting!();
+                self.next_byte();
+                self.decoded += 1;
+                let res = try!(self.parse_number());
+                Ok(NumberValue(res))
+            }
+            Some('0' .. '9') => {
+                check_nesting!();
+                self.decoded += 1;
+                let res = try!(self.parse_bytestring());
+                Ok(ByteStringValue(res))
+            }
+            Some('l') => {
+                check_nesting!();
+                self.next_byte();
+                self.decoded += 1;
+                self.stack.push(ListPosition);
+                Ok(ListStart)
+            }
+            Some('d') => {
+                check_nesting!();
+                self.next_byte();
+                self.decoded += 1;
+                self.stack.push(KeyPosition);
+                Ok(DictStart)
+            }
+            Some('e') => self.parse_end(),
+            _ => self.error(~"i or 0-9 or l or d or e")
+        }
+    }
+}
 
 impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
     fn next(&mut self) -> Option<BencodeEvent> {
         if self.end {
             return None
         }
-        match self.curr_char() {
-            Some('i') => {
-                check_nesting!();
-                if self.expected == KeyToken {
-                    return try_result!(self.error_msg(~"Wrong key type: integer"));
-                }
-                self.next_byte();
-                self.decoded += 1;
-                let res = try_result!(self.parse_number());
-                res.map(|v| NumberValue(v))
+        let result = match self.stack.pop() {
+            Some(KeyPosition) => {
+                self.stack.push(ValuePosition);
+                self.parse_key()
             }
-            Some('0' .. '9') => {
-                check_nesting!();
-                self.decoded += 1;
-                let res = try_result!(self.parse_bytestring());
-                match self.expected {
-                    ValueToken => res.map(|v| ByteStringValue(v)),
-                    KeyToken => {
-                        self.expected = ValueToken;
-                        res.map(|v| DictKey(v))
-                    }
+            pos => {
+                match pos {
+                    Some(ValuePosition) => self.stack.push(KeyPosition),
+                    Some(_) => self.stack.push(pos.unwrap()),
+                    None => {}
                 }
+                self.parse_event()
             }
-            Some('l') => {
-                check_nesting!();
-                if self.expected == KeyToken {
-                    return try_result!(self.error_msg(~"Wrong key type: list"));
-                }
-                self.next_byte();
-                self.decoded += 1;
-                self.nesting.push(ListStart);
-                Some(ListStart)
+        };
+        match result {
+            Ok(ev) => Some(ev),
+            Err(err) => {
+                self.end = true;
+                Some(ParseError(err))
             }
-            Some('d') => {
-                check_nesting!();
-                if self.expected == KeyToken {
-                    return try_result!(self.error_msg(~"Wrong key type: dict"));
-                }
-                self.next_byte();
-                self.decoded += 1;
-                self.nesting.push(DictStart);
-                self.expected = KeyToken;
-                Some(DictStart)
-            }
-            Some('e') => {
-                self.next_byte();
-                match self.nesting.pop() {
-                    Some(ListStart) => Some(ListEnd),
-                    Some(DictStart) => Some(DictEnd),
-                    _ => return try_result!(self.error_msg(~"Unmatched value ending"))
-                }
-            }
-            _ => try_result!(self.error(~"i or 0-9 or l or d or e"))
         }
     }
 }
@@ -714,7 +726,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
             Some(ListStart) => self.parse_list(current),
             Some(DictStart) => self.parse_dict(current),
             Some(ParseError(err)) => Err(err),
-            x => fail!("Unreachable but got {}", x)
+            x => fail!("[root] Unreachable but got {}", x)
         };
         if self.depth == 0 {
             let next = self.reader.next();
@@ -747,7 +759,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
                         err@Err(_) => return err
                     }
                 }
-                x => fail!("Unreachable but got {}", x)
+                x => fail!("[list] Unreachable but got {}", x)
             }
         }
         self.depth -= 1;
@@ -763,7 +775,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => Key(v),
                 Some(ParseError(err)) => return Err(err),
-                x => fail!("Unreachable but got {}", x)
+                x => fail!("[dict] Unreachable but got {}", x)
             };
             current = self.reader.next();
             let value = try!(self.parse_elem(current));
@@ -821,25 +833,39 @@ impl<'a> serialize::Decoder for Decoder<'a> {
 
     fn read_char(&mut self) -> char { self.try_read() }
 
-    fn read_str(&mut self) -> ~str {
-        match self.stack.pop() {
-            Some(&ByteString(ref v)) => {
-                match str::from_utf8_owned(v.clone()) {
-                    Some(s) => s,
-                    _ => fail!()
-                }
-            }
-            _ => fail!()
-        }
-    }
+    fn read_str(&mut self) -> ~str { self.try_read() }
 
     fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
     fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
     fn read_enum_variant_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
     fn read_enum_struct_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
     fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
-    fn read_struct<T>(&mut self, _s_name: &str, _len: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
-    fn read_struct_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+
+    fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        let res = f(self);
+        self.stack.pop();
+        res
+    }
+
+    fn read_struct_field<T>(&mut self, f_name: &str, _f_idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        let val = match self.stack.last() {
+            Some(v) => {
+                match *v {
+                    &Dict(ref m) => {
+                        match m.find(&Key(f_name.as_bytes().to_owned())) {
+                            Some(v) => v,
+                            None => fail!()
+                        }
+                    }
+                    _ => fail!()
+                }
+            }
+            _ => fail!()
+        };
+        self.stack.push(val);
+        f(self)
+    }
+
     fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
     fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
     fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
@@ -868,7 +894,6 @@ impl<'a> serialize::Decoder for Decoder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::io;
     use std::str::raw;
     use serialize::{Encodable, Decodable};
     use collections::treemap::TreeMap;
@@ -879,12 +904,6 @@ mod tests {
                 ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
     use super::{Parser, Decoder};
     use super::alphanum_to_str;
-
-    #[deriving(Eq, Show, Encodable)]
-    struct SimpleStruct {
-        a: uint,
-        b: ~[~str],
-    }
 
     macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
         let v = $value;
@@ -903,11 +922,8 @@ mod tests {
         #[test]
         fn $name() {
             $({
-                let value = $val;
-                let bencode = value.to_bencode();
-                let enc_bencode = bencode.to_bytes();
-                let enc = Encoder::buffer_encode(&value);
-                assert_eq!(enc, enc_bencode);
+                let value = $val.to_bencode();
+                assert_encoding!(value, $enc)
             };)+
         }
     })
@@ -943,22 +959,205 @@ mod tests {
         s.as_bytes().to_owned()
     }
 
-    #[test]
-    fn encodes_number_zero() {
-        assert_eq!(Number(0).to_bytes(), bytes("i0e"));
-    }
+    gen_complete_test!(encodes_unit,
+                       tobencode_unit,
+                       identity_unit,
+                       () -> bytes("0:"))
 
-    #[test]
-    fn encodes_positive_numbers() {
-        assert_eq!(Number(-5).to_bytes(), bytes("i-5e"));
-        assert_eq!(Number(::std::i64::MIN).to_bytes(), format!("i{}e", ::std::i64::MIN).as_bytes().to_owned());
-    }
+    gen_complete_test!(encodes_zero_int,
+                       tobencode_zero_int,
+                       identity_zero_int,
+                       0i -> bytes("i0e"))
 
-    #[test]
-    fn encodes_negative_numbers() {
-        assert_eq!(Number(5).to_bytes(), bytes("i5e"));
-        assert_eq!(Number(::std::i64::MAX).to_bytes(), format!("i{}e", ::std::i64::MAX).as_bytes().to_owned());
-    }
+    gen_complete_test!(encodes_positive_int,
+                       tobencode_positive_int,
+                       identity_positive_int,
+                       5i -> bytes("i5e"),
+                       99i -> bytes("i99e"),
+                       ::std::int::MAX -> bytes(format!("i{}e", ::std::int::MAX)))
+
+    gen_complete_test!(encodes_negative_int,
+                       tobencode_negative_int,
+                       identity_negative_int,
+                       -5i -> bytes("i-5e"),
+                       -99i -> bytes("i-99e"),
+                       ::std::int::MIN -> bytes(format!("i{}e", ::std::int::MIN)))
+
+    gen_complete_test!(encodes_zero_i8,
+                       tobencode_zero_i8,
+                       identity_zero_i8,
+                       0i8 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_i8,
+                       tobencode_positive_i8,
+                       identity_positive_i8,
+                       5i8 -> bytes("i5e"),
+                       99i8 -> bytes("i99e"),
+                       ::std::i8::MAX -> bytes(format!("i{}e", ::std::i8::MAX)))
+
+    gen_complete_test!(encodes_negative_i8,
+                       tobencode_negative_i8,
+                       identity_negative_i8,
+                       -5i8 -> bytes("i-5e"),
+                       -99i8 -> bytes("i-99e"),
+                       ::std::i8::MIN -> bytes(format!("i{}e", ::std::i8::MIN)))
+
+    gen_complete_test!(encodes_zero_i16,
+                       tobencode_zero_i16,
+                       identity_zero_i16,
+                       0i16 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_i16,
+                       tobencode_positive_i16,
+                       identity_positive_i16,
+                       5i16 -> bytes("i5e"),
+                       99i16 -> bytes("i99e"),
+                       ::std::i16::MAX -> bytes(format!("i{}e", ::std::i16::MAX)))
+
+    gen_complete_test!(encodes_negative_i16,
+                       tobencode_negative_i16,
+                       identity_negative_i16,
+                       -5i16 -> bytes("i-5e"),
+                       -99i16 -> bytes("i-99e"),
+                       ::std::i16::MIN -> bytes(format!("i{}e", ::std::i16::MIN)))
+
+    gen_complete_test!(encodes_zero_i32,
+                       tobencode_zero_i32,
+                       identity_zero_i32,
+                       0i32 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_i32,
+                       tobencode_positive_i32,
+                       identity_positive_i32,
+                       5i32 -> bytes("i5e"),
+                       99i32 -> bytes("i99e"),
+                       ::std::i32::MAX -> bytes(format!("i{}e", ::std::i32::MAX)))
+
+    gen_complete_test!(encodes_negative_i32,
+                       tobencode_negative_i32,
+                       identity_negative_i32,
+                       -5i32 -> bytes("i-5e"),
+                       -99i32 -> bytes("i-99e"),
+                       ::std::i32::MIN -> bytes(format!("i{}e", ::std::i32::MIN)))
+
+    gen_complete_test!(encodes_zero_i64,
+                       tobencode_zero_i64,
+                       identity_zero_i64,
+                       0i64 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_i64,
+                       tobencode_positive_i64,
+                       identity_positive_i64,
+                       5i64 -> bytes("i5e"),
+                       99i64 -> bytes("i99e"),
+                       ::std::i64::MAX -> bytes(format!("i{}e", ::std::i64::MAX)))
+
+    gen_complete_test!(encodes_negative_i64,
+                       tobencode_negative_i64,
+                       identity_negative_i64,
+                       -5i64 -> bytes("i-5e"),
+                       -99i64 -> bytes("i-99e"),
+                       ::std::i64::MIN -> bytes(format!("i{}e", ::std::i64::MIN)))
+
+    gen_complete_test!(encodes_zero_uint,
+                       tobencode_zero_uint,
+                       identity_zero_uint,
+                       0u -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_uint,
+                       tobencode_positive_uint,
+                       identity_positive_uint,
+                       5u -> bytes("i5e"),
+                       99u -> bytes("i99e"),
+                       ::std::uint::MAX / 2 -> bytes(format!("i{}e", ::std::uint::MAX / 2)))
+
+    gen_complete_test!(encodes_zero_u8,
+                       tobencode_zero_u8,
+                       identity_zero_u8,
+                       0u8 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_u8,
+                       tobencode_positive_u8,
+                       identity_positive_u8,
+                       5u8 -> bytes("i5e"),
+                       99u8 -> bytes("i99e"),
+                       ::std::u8::MAX -> bytes(format!("i{}e", ::std::u8::MAX)))
+
+    gen_complete_test!(encodes_zero_u16,
+                       tobencode_zero_u16,
+                       identity_zero_u16,
+                       0u16 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_u16,
+                       tobencode_positive_u16,
+                       identity_positive_u16,
+                       5u16 -> bytes("i5e"),
+                       99u16 -> bytes("i99e"),
+                       ::std::u16::MAX -> bytes(format!("i{}e", ::std::u16::MAX)))
+
+    gen_complete_test!(encodes_zero_u32,
+                       tobencode_zero_u32,
+                       identity_zero_u32,
+                       0u32 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_u32,
+                       tobencode_positive_u32,
+                       identity_positive_u32,
+                       5u32 -> bytes("i5e"),
+                       99u32 -> bytes("i99e"),
+                       ::std::u32::MAX -> bytes(format!("i{}e", ::std::u32::MAX)))
+
+    gen_complete_test!(encodes_zero_u64,
+                       tobencode_zero_u64,
+                       identity_zero_u64,
+                       0u64 -> bytes("i0e"))
+
+    gen_complete_test!(encodes_positive_u64,
+                       tobencode_positive_u64,
+                       identity_positive_u64,
+                       5u64 -> bytes("i5e"),
+                       99u64 -> bytes("i99e"),
+                       ::std::u64::MAX / 2 -> bytes(format!("i{}e", ::std::u64::MAX / 2)))
+
+    gen_complete_test!(encodes_bool,
+                       tobencode_bool,
+                       identity_bool,
+                       true -> bytes("4:true"),
+                       false -> bytes("5:false"))
+
+    gen_complete_test!(encodes_zero_f32,
+                       tobencode_zero_f32,
+                       identity_zero_f32,
+                       0.0f32 -> bytes("1:0"))
+
+    gen_complete_test!(encodes_positive_f32,
+                       tobencode_positive_f32,
+                       identity_positive_f32,
+                       99.0f32 -> bytes("2:63"),
+                       101.12345f32 -> bytes("8:65.1f9a8"))
+
+    gen_complete_test!(encodes_negative_f32,
+                       tobencode_negative_f32,
+                       identity_negative_f32,
+                       -99.0f32 -> bytes("3:-63"),
+                       -101.12345f32 -> bytes("9:-65.1f9a8"))
+
+    gen_complete_test!(encodes_zero_f64,
+                       tobencode_zero_f64,
+                       identity_zero_f64,
+                       0.0f64 -> bytes("1:0"))
+
+    gen_complete_test!(encodes_positive_f64,
+                       tobencode_positive_f64,
+                       identity_positive_f64,
+                       99.0f64 -> bytes("2:63"),
+                       101.12345f64 -> bytes("15:65.1f9a6b50b0f4"))
+
+    gen_complete_test!(encodes_negative_f64,
+                       tobencode_negative_f64,
+                       identity_negative_f64,
+                       -99.0f64 -> bytes("3:-63"),
+                       -101.12345f64 -> bytes("16:-65.1f9a6b50b0f4"))
 
     gen_complete_test!(encodes_lower_letter_char,
                        tobencode_lower_letter_char,
@@ -986,6 +1185,125 @@ mod tests {
                        '\n' -> bytes("1:\n"),
                        '\r' -> bytes("1:\r"),
                        '\0' -> bytes("1:\0"))
+
+    gen_complete_test!(encode_empty_str,
+                      tobencode_empty_str,
+                      identity_empty_str,
+                      ~"" -> bytes("0:"))
+
+    gen_complete_test!(encode_str,
+                      tobencode_str,
+                      identity_str,
+                      ~"a" -> bytes("1:a"),
+                      ~"foo" -> bytes("3:foo"),
+                      ~"This is nice!?#$%" -> bytes("17:This is nice!?#$%"))
+
+    gen_complete_test!(encode_str_with_multibyte_chars,
+                      tobencode_str_with_multibyte_chars,
+                      identity_str_with_multibyte_chars,
+                      ~"Löwe 老虎 Léopard" -> bytes("21:Löwe 老虎 Léopard"),
+                      ~"いろはにほへとちりぬるを" -> bytes("36:いろはにほへとちりぬるを"))
+
+    gen_complete_test!(encodes_empty_vec,
+                       tobencode_empty_vec,
+                       identity_empty_vec,
+                       {
+                           let empty: ~[u8] = ~[];
+                           empty
+                       } -> bytes("le"))
+
+    gen_complete_test!(encodes_nonmpty_vec,
+                       tobencode_nonmpty_vec,
+                       identity_nonmpty_vec,
+                       ~[0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
+                       ~[~"foo", ~"b"] -> bytes("l3:foo1:be"))
+
+    gen_complete_test!(encodes_nested_vec,
+                       tobencode_nested_vec,
+                       identity_nested_vec,
+                       ~[~[1], ~[2, 3], ~[]] -> bytes("lli1eeli2ei3eelee"))
+
+    #[deriving(Eq, Show, Encodable, Decodable)]
+    struct SimpleStruct {
+        a: uint,
+        b: ~[~str],
+    }
+
+    #[deriving(Eq, Show, Encodable, Decodable)]
+    struct InnerStruct {
+        field_one: (),
+        list: ~[uint],
+        abc: ~str
+    }
+
+    #[deriving(Eq, Show, Encodable, Decodable)]
+    struct OuterStruct {
+        inner: ~[InnerStruct],
+        is_true: bool
+    }
+
+    gen_encode_identity_test!(encodes_struct,
+                              identity_struct,
+                              SimpleStruct {
+                                  b: ~[~"foo", ~"baar"],
+                                  a: 123
+                              } -> bytes("d1:ai123e1:bl3:foo4:baaree"),
+                              SimpleStruct {
+                                  a: 1234567890,
+                                  b: ~[]
+                              } -> bytes("d1:ai1234567890e1:blee"))
+
+    gen_encode_identity_test!(encodes_nested_struct,
+                              identity_nested_Struct,
+                              OuterStruct {
+                                  is_true: true,
+                                  inner: ~[InnerStruct {
+                                      field_one: (),
+                                      list: ~[99, 5],
+                                      abc: ~"rust"
+                                  }, InnerStruct {
+                                      field_one: (),
+                                      list: ~[],
+                                      abc: ~""
+                                  }]
+                              } -> bytes("d\
+                                           5:inner\
+                                             l\
+                                               d\
+                                                 3:abc4:rust\
+                                                 9:field_one0:\
+                                                 4:list\
+                                                   l\
+                                                     i99e\
+                                                     i5e\
+                                                   e\
+                                               e\
+                                               d\
+                                                 3:abc0:\
+                                                 9:field_one0:\
+                                                 4:listle\
+                                               e\
+                                             e\
+                                           7:is_true4:true\
+                                          e"))
+
+    #[test]
+    fn encodes_struct_fields_in_sorted_order() {
+        #[deriving(Encodable)]
+        struct OrderedStruct {
+            z: int,
+            a: int,
+            ab: int,
+            aa: int,
+        }
+        let s = OrderedStruct {
+            z: 4,
+            a: 1,
+            ab: 3,
+            aa: 2
+        };
+        assert_eq!(Encoder::buffer_encode(&s), bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee"));
+    }
 
     #[test]
     fn encodes_empty_bytestring() {
@@ -1047,43 +1365,6 @@ mod tests {
         m.insert(Key((~"abd").into_bytes()), Number(3));
         m.insert(Key((~"abc").into_bytes()), Number(2));
         assert_eq!(Dict(m).to_bytes(), bytes("d3:abci2e3:abdi3e1:zi1ee"));
-    }
-
-    #[test]
-    fn encodes_encodable_struct() {
-        let mut writer = io::MemWriter::new();
-        {
-            let mut encoder = Encoder::new(&mut writer);
-            let s = SimpleStruct {
-                b: ~[~"foo", ~"baar"],
-                a: 123
-            };
-            s.encode(&mut encoder);
-        }
-        assert_eq!(writer.unwrap(), bytes("d1:ai123e1:bl3:foo4:baaree"));
-    }
-
-    #[test]
-    fn encodes_struct_fields_in_sorted_order() {
-        #[deriving(Encodable)]
-        struct OrderedStruct {
-            z: int,
-            a: int,
-            ab: int,
-            aa: int,
-        }
-        let mut writer = io::MemWriter::new();
-        {
-            let mut encoder = Encoder::new(&mut writer);
-            let s = OrderedStruct {
-                z: 4,
-                a: 1,
-                ab: 3,
-                aa: 2
-            };
-            s.encode(&mut encoder);
-        }
-        assert_eq!(writer.unwrap(), bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee"));
     }
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
@@ -1242,7 +1523,17 @@ mod tests {
                           ListStart,
                           NumberValue(2006),
                           ListEnd,
-                          DictEnd])
+                          DictEnd]);
+        assert_stream_eq("d1:ai123e1:bl3:foo4:baaree",
+                        [DictStart,
+                         DictKey(bytes("a")),
+                         NumberValue(123),
+                         DictKey(bytes("b")),
+                         ListStart,
+                         ByteStringValue(bytes("foo")),
+                         ByteStringValue(bytes("baar")),
+                         ListEnd,
+                         DictEnd])
     }
 
     #[test]
@@ -1258,16 +1549,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_error_on_key_of_of_wrong_type() {
+    fn parse_error_on_key_of_wrong_type() {
         assert_stream_eq("di2006ei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: integer" })]);
+                          ParseError(Error{ pos: 1, msg: ~"Expecting '0-9 or e' but got 'i'" })]);
         assert_stream_eq("dleei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: list" })]);
+                          ParseError(Error{ pos: 1, msg: ~"Expecting '0-9 or e' but got 'l'" })]);
         assert_stream_eq("ddei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: ~"Wrong key type: dict" })]);
+                          ParseError(Error{ pos: 1, msg: ~"Expecting '0-9 or e' but got 'd'" })]);
     }
 
     #[test]
@@ -1389,122 +1680,6 @@ mod tests {
         assert_decoded_eq([DictStart,
                            DictKey(bytes("foo")),
                            perr.clone()], Err(err.clone()));
-    }
-
-    #[test]
-    fn identity_encode_decode_unit() {
-        assert_identity!(());
-    }
-
-    #[test]
-    fn identity_encode_decode_int() {
-        assert_identity!(99i);
-        assert_identity!(::std::int::MIN);
-        assert_identity!(::std::int::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_i8() {
-        assert_identity!(99i8);
-        assert_identity!(::std::i8::MIN);
-        assert_identity!(::std::i8::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_i16() {
-        assert_identity!(99i16);
-        assert_identity!(::std::i16::MIN);
-        assert_identity!(::std::i16::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_i32() {
-        assert_identity!(99i32);
-        assert_identity!(::std::i32::MIN);
-        assert_identity!(::std::i32::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_i64() {
-        assert_identity!(99i64);
-        assert_identity!(::std::i64::MIN);
-        assert_identity!(::std::i64::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_uint() {
-        assert_identity!(99u);
-        assert_identity!(::std::uint::MIN);
-        assert_identity!(::std::uint::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_u8() {
-        assert_identity!(99u8);
-        assert_identity!(::std::u8::MIN);
-        assert_identity!(::std::u8::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_u16() {
-        assert_identity!(99u16);
-        assert_identity!(::std::u16::MIN);
-        assert_identity!(::std::u16::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_u32() {
-        assert_identity!(99u32);
-        assert_identity!(::std::u32::MIN);
-        assert_identity!(::std::u32::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_u64() {
-        assert_identity!(99u64);
-        assert_identity!(::std::u64::MIN);
-        assert_identity!(::std::u64::MAX);
-    }
-
-    #[test]
-    fn identity_encode_decode_f32() {
-        assert_identity!(99.0f32);
-        assert_identity!(99.13f32);
-        assert_identity!(::std::f32::MIN_VALUE as f32);
-        assert_identity!(::std::f32::MAX_VALUE as f32);
-        assert_identity!(-::std::f32::MIN_VALUE as f32);
-        assert_identity!(-::std::f32::MAX_VALUE as f32);
-    }
-
-    #[test]
-    fn identity_encode_decode_f64() {
-        assert_identity!(99.0f64);
-        assert_identity!(99.13f64);
-        assert_identity!(::std::f64::MIN_VALUE);
-        assert_identity!(::std::f64::MAX_VALUE);
-        assert_identity!(-::std::f64::MIN_VALUE);
-        assert_identity!(-::std::f64::MAX_VALUE);
-    }
-
-    #[test]
-    fn identity_encode_decode_bool() {
-        assert_identity!(true);
-        assert_identity!(false);
-    }
-
-    #[test]
-    fn identity_encode_decode_str() {
-        assert_identity!(~"");
-        assert_identity!(~"abc");
-        assert_identity!(~"Löwe 老虎 Léopard");
-    }
-
-    #[test]
-    fn identity_encode_decode_owned_vec() {
-        let empty: ~[int] = ~[];
-        assert_identity!(empty);
-        assert_identity!(~[~"a", ~"ab", ~"abc"]);
-        assert_identity!(~[1.1, 1.2, 1.3]);
     }
 }
 
