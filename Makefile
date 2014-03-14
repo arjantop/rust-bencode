@@ -19,7 +19,7 @@ clean:
 
 test: $(TESTDIR)
 	${RUSTC} ${RUSTFLAGS} --test -o $(TESTDIR)/test src/bencode.rs
-	./$(TESTDIR)/test
+	RUST_LOG=std::rt::backtrace ./$(TESTDIR)/test
 
 bench: test
 	./$(TESTDIR)/test --bench
