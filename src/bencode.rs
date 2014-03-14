@@ -11,6 +11,7 @@
 #[crate_type = "rlib"];
 #[crate_type = "dylib"];
 #[deny(warnings)];
+#[allow(deprecated_owned_vector)];
 #[feature(macro_rules)];
 
 extern crate collections;
@@ -297,8 +298,7 @@ pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
 }
 
 pub fn from_owned(buf: ~[u8]) -> Result<Bencode, Error> {
-    let mut reader = io::MemReader::new(buf);
-    from_iter(reader.bytes())
+    from_iter(buf.move_iter())
 }
 
 pub fn from_iter<T: Iterator<u8>>(iter: T) -> Result<Bencode, Error> {
@@ -1716,8 +1716,7 @@ mod bench {
         let v = vec::from_fn(100, |n| n);
         let b = Encoder::buffer_encode(&v);
         bh.iter(|| {
-            let mut reader = io::MemReader::new(b.clone());
-            let streaming_parser = StreamingParser::new(reader.bytes());
+            let streaming_parser = StreamingParser::new(b.clone().move_iter());
             let mut parser = Parser::new(streaming_parser);
             let bencode = parser.parse().unwrap();
             let mut decoder = Decoder::new(&bencode);
