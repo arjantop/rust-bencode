@@ -18,6 +18,7 @@ extern crate collections;
 extern crate serialize;
 
 use std::io;
+use std::io::{IoResult, IoError};
 use std::fmt;
 use std::str;
 use std::str::raw;
@@ -27,6 +28,7 @@ use std::vec_ng::Vec;
 use serialize::{Encodable};
 
 use collections::treemap::TreeMap;
+use collections::hashmap::HashMap;
 
 #[deriving(Eq, Clone)]
 pub enum Bencode {
@@ -59,7 +61,7 @@ impl fmt::Show for Bencode {
     }
 }
 
-#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord, Show)]
+#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord, Show, Hash)]
 pub struct Key(~[u8]);
 
 pub type List = ~[Bencode];
@@ -104,6 +106,7 @@ pub trait ToBencode {
 pub trait FromBencode {
     fn from_bencode(&Bencode) -> Option<Self>;
 }
+
 impl ToBencode for () {
     fn to_bencode(&self) -> Bencode {
         ByteString(~[])
@@ -293,6 +296,65 @@ impl<T: FromBencode> FromBencode for ~[T] {
     }
 }
 
+macro_rules! map_to_bencode {
+    ($m:expr) => {{
+        let mut m = TreeMap::new();
+        for (key, value) in $m.iter() {
+            m.insert(Key(key.as_bytes().to_owned()), value.to_bencode());
+        }
+        Dict(m)
+    }}
+}
+
+macro_rules! map_from_bencode {
+    ($mty:ident) => {{
+        let res = match bencode {
+            &Dict(ref map) => {
+                let mut m = $mty::new();
+                for (&Key(ref key), value) in map.iter() {
+                    match str::from_utf8(key.as_slice()) {
+                        Some(k) => {
+                            let val: Option<T> = FromBencode::from_bencode(value);
+                            match val {
+                                Some(v) => m.insert(k.to_owned(), v),
+                                None => return None
+                            }
+                        }
+                        None => return None
+                    };
+                }
+                Some(m)
+            }
+            _ => None
+        };
+        res
+    }}
+}
+
+impl<T: ToBencode> ToBencode for TreeMap<~str, T> {
+    fn to_bencode(&self) -> Bencode {
+        map_to_bencode!(self)
+    }
+}
+
+impl<T: FromBencode> FromBencode for TreeMap<~str, T> {
+    fn from_bencode(bencode: &Bencode) -> Option<TreeMap<~str, T>> {
+        map_from_bencode!(TreeMap)
+    }
+}
+
+impl<T: ToBencode> ToBencode for HashMap<~str, T> {
+    fn to_bencode(&self) -> Bencode {
+        map_to_bencode!(self)
+    }
+}
+
+impl<T: FromBencode> FromBencode for HashMap<~str, T> {
+    fn from_bencode(bencode: &Bencode) -> Option<HashMap<~str, T>> {
+        map_from_bencode!(HashMap)
+    }
+}
+
 pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
     from_owned(buf.to_owned())
 }
@@ -319,7 +381,9 @@ macro_rules! tryenc(($e:expr) => (
 
 pub struct Encoder<'a> {
     priv writer: &'a mut io::Writer,
-    priv current_writer: io::MemWriter,
+    priv writers: Vec<io::MemWriter>,
+    priv expect_key: bool,
+    priv keys: Vec<Key>,
     priv error: io::IoResult<()>,
     priv stack: Vec<TreeMap<Key, ~[u8]>>,
 }
@@ -328,26 +392,31 @@ impl<'a> Encoder<'a> {
     pub fn new(writer: &'a mut io::Writer) -> Encoder<'a> {
         Encoder {
             writer: writer,
-            current_writer: io::MemWriter::new(),
+            writers: Vec::new(),
+            expect_key: false,
+            keys: Vec::new(),
             error: Ok(()),
             stack: Vec::new()
         }
     }
 
-    pub fn buffer_encode<T: Encodable<Encoder<'a>>>(val: &T) -> ~[u8] {
+    pub fn buffer_encode<T: Encodable<Encoder<'a>>>(val: &T) -> IoResult<~[u8]> {
         let mut writer = io::MemWriter::new();
         {
             let mut encoder = Encoder::new(&mut writer);
             val.encode(&mut encoder);
+            if encoder.error.is_err() {
+                return Err(encoder.error.unwrap_err())
+            }
         }
-        writer.unwrap()
+        Ok(writer.unwrap())
     }
 
     fn get_writer(&'a mut self) -> &'a mut io::Writer {
-        if self.stack.len() == 0 {
+        if self.writers.len() == 0 {
             &mut self.writer as &'a mut io::Writer
         } else {
-            &mut self.current_writer as &'a mut io::Writer
+            self.writers.mut_last().unwrap() as &'a mut io::Writer
         }
     }
 
@@ -359,10 +428,25 @@ impl<'a> Encoder<'a> {
         }
         tryenc!(write!(self.get_writer(), "e"));
     }
+
+    fn error(&mut self, msg: &'static str) {
+        self.error = Err(IoError {
+            kind: io::InvalidInput,
+            desc: msg,
+            detail: None
+        });
+        fail!(msg)
+    }
 }
 
+macro_rules! expect_value(() => {
+    if self.expect_key {
+        self.error("Only 'string' map keys allowed");
+    }
+})
+
 impl<'a> serialize::Encoder for Encoder<'a> {
-    fn emit_nil(&mut self) { tryenc!(write!(self.get_writer(), "0:")) }
+    fn emit_nil(&mut self) { expect_value!(); tryenc!(write!(self.get_writer(), "0:")) }
 
     fn emit_uint(&mut self, v: uint) { self.emit_i64(v as i64); }
 
@@ -382,9 +466,10 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_i32(&mut self, v: i32) { self.emit_i64(v as i64); }
 
-    fn emit_i64(&mut self, v: i64) { tryenc!(write!(self.get_writer(), "i{}e", v)) }
+    fn emit_i64(&mut self, v: i64) { expect_value!(); tryenc!(write!(self.get_writer(), "i{}e", v)) }
 
     fn emit_bool(&mut self, v: bool) {
+        expect_value!(); 
         if v {
             self.emit_str("true");
         } else {
@@ -393,18 +478,24 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     }
 
     fn emit_f32(&mut self, v: f32) {
+        expect_value!(); 
         self.emit_str(std::f32::to_str_hex(v));
     }
 
     fn emit_f64(&mut self, v: f64) {
+        expect_value!(); 
         self.emit_str(std::f64::to_str_hex(v));
     }
 
-    fn emit_char(&mut self, v: char) { self.emit_str(str::from_char(v)); }
+    fn emit_char(&mut self, v: char) { expect_value!(); self.emit_str(str::from_char(v)); }
 
     fn emit_str(&mut self, v: &str) {
-        tryenc!(write!(self.get_writer(), "{}:", v.len()));
-        tryenc!(self.get_writer().write(v.as_bytes()));
+        if self.expect_key {
+            self.keys.push(Key(v.as_bytes().to_owned()));
+        } else {
+            tryenc!(write!(self.get_writer(), "{}:", v.len()));
+            tryenc!(self.get_writer().write(v.as_bytes()));
+        }
     }
 
     fn emit_enum(&mut self, _name: &str, _f: |&mut Encoder<'a>|) { unimplemented!(); }
@@ -414,6 +505,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_enum_struct_variant_field(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_struct(&mut self, _name: &str, _len: uint, f: |&mut Encoder<'a>|) {
+        expect_value!(); 
         self.stack.push(TreeMap::new());
         f(self);
         let dict = self.stack.pop().unwrap();
@@ -421,9 +513,10 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     }
 
     fn emit_struct_field(&mut self, f_name: &str, _f_idx: uint, f: |&mut Encoder<'a>|) {
-        let mut data = std::mem::replace(&mut self.current_writer, io::MemWriter::new());
+        expect_value!(); 
+        self.writers.push(io::MemWriter::new());
         f(self);
-        std::mem::swap(&mut self.current_writer, &mut data);
+        let data = self.writers.pop().unwrap();
         let dict = self.stack.mut_last().unwrap();
         dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
     }
@@ -437,27 +530,40 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_option_some(&mut self, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_seq(&mut self, _len: uint, f: |this: &mut Encoder<'a>|) {
+        expect_value!(); 
         tryenc!(write!(self.get_writer(), "l"));
         f(self);
         tryenc!(write!(self.get_writer(), "e"));
     }
 
     fn emit_seq_elt(&mut self, _idx: uint, f: |this: &mut Encoder<'a>|) {
+        expect_value!(); 
         f(self);
     }
 
     fn emit_map(&mut self, _len: uint, f: |&mut Encoder<'a>|) {
-        tryenc!(write!(self.get_writer(), "d"));
+        expect_value!(); 
+        self.stack.push(TreeMap::new());
         f(self);
-        tryenc!(write!(self.get_writer(), "e"));
+        let dict = self.stack.pop().unwrap();
+        self.encode_dict(&dict);
     }
 
     fn emit_map_elt_key(&mut self, _idx: uint, f: |&mut Encoder<'a>|) {
+        expect_value!(); 
+        self.writers.push(io::MemWriter::new());
+        self.expect_key = true;
         f(self);
+        self.expect_key = false;
     }
 
     fn emit_map_elt_val(&mut self, _idx: uint, f: |&mut Encoder<'a>|) {
+        expect_value!(); 
         f(self);
+        let key = self.keys.pop();
+        let data = self.writers.pop().unwrap();
+        let dict = self.stack.mut_last().unwrap();
+        dict.insert(key.unwrap(), data.unwrap());
     }
 }
 
@@ -787,12 +893,16 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
 }
 
 pub struct Decoder<'a> {
+    priv keys: Vec<Key>,
+    priv expect_key: bool,
     priv stack: Vec<&'a Bencode>,
 }
 
 impl<'a> Decoder<'a> {
     pub fn new(bencode: &'a Bencode) -> Decoder<'a> {
         Decoder {
+            keys: Vec::new(),
+            expect_key: false,
             stack: Vec::from_slice([bencode])
         }
     }
@@ -800,40 +910,51 @@ impl<'a> Decoder<'a> {
     fn try_read<T: FromBencode>(&mut self) -> T {
         self.stack.pop().and_then(|b| FromBencode::from_bencode(b)).unwrap()
     }
+
+    fn error(&self, msg: &'static str) -> ! {
+        fail!(msg)
+    }
 }
 
 impl<'a> serialize::Decoder for Decoder<'a> {
-    fn read_nil(&mut self) { self.try_read() }
+    fn read_nil(&mut self) { expect_value!(); self.try_read() }
 
-    fn read_uint(&mut self) -> uint { self.try_read() }
+    fn read_uint(&mut self) -> uint { expect_value!(); self.try_read() }
 
-    fn read_u8(&mut self) -> u8 { self.try_read() }
+    fn read_u8(&mut self) -> u8 { expect_value!(); self.try_read() }
 
-    fn read_u16(&mut self) -> u16 { self.try_read() }
+    fn read_u16(&mut self) -> u16 { expect_value!(); self.try_read() }
 
-    fn read_u32(&mut self) -> u32 { self.try_read() }
+    fn read_u32(&mut self) -> u32 { expect_value!(); self.try_read() }
 
-    fn read_u64(&mut self) -> u64 { self.try_read() }
+    fn read_u64(&mut self) -> u64 { expect_value!(); self.try_read() }
 
-    fn read_int(&mut self) -> int { self.try_read() }
+    fn read_int(&mut self) -> int { expect_value!(); self.try_read() }
 
-    fn read_i8(&mut self) -> i8 { self.try_read() }
+    fn read_i8(&mut self) -> i8 { expect_value!(); self.try_read() }
 
-    fn read_i16(&mut self) -> i16 { self.try_read() }
+    fn read_i16(&mut self) -> i16 { expect_value!(); self.try_read() }
 
-    fn read_i32(&mut self) -> i32 { self.try_read() }
+    fn read_i32(&mut self) -> i32 { expect_value!(); self.try_read() }
 
-    fn read_i64(&mut self) -> i64 { self.try_read() } 
+    fn read_i64(&mut self) -> i64 { expect_value!(); self.try_read() } 
 
-    fn read_bool(&mut self) -> bool { self.try_read() }
+    fn read_bool(&mut self) -> bool { expect_value!(); self.try_read() }
 
-    fn read_f32(&mut self) -> f32 { self.try_read() }
+    fn read_f32(&mut self) -> f32 { expect_value!(); self.try_read() }
 
-    fn read_f64(&mut self) -> f64 { self.try_read() }
+    fn read_f64(&mut self) -> f64 { expect_value!(); self.try_read() }
 
-    fn read_char(&mut self) -> char { self.try_read() }
+    fn read_char(&mut self) -> char { expect_value!(); self.try_read() }
 
-    fn read_str(&mut self) -> ~str { self.try_read() }
+    fn read_str(&mut self) -> ~str {
+        if self.expect_key {
+            let Key(b) = self.keys.pop().unwrap();
+            str::from_utf8_owned(b).unwrap()
+        } else {
+            self.try_read()
+        }
+    }
 
     fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
     fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
@@ -842,12 +963,14 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
 
     fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        expect_value!(); 
         let res = f(self);
         self.stack.pop();
         res
     }
 
     fn read_struct_field<T>(&mut self, f_name: &str, _f_idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        expect_value!(); 
         let val = match self.stack.last() {
             Some(v) => {
                 match *v {
@@ -873,6 +996,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_option<T>(&mut self, _f: |&mut Decoder<'a>, bool| -> T) -> T { unimplemented!(); }
 
     fn read_seq<T>(&mut self, f: |&mut Decoder<'a>, uint| -> T) -> T {
+        expect_value!(); 
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
                 for v in list.rev_iter() {
@@ -885,11 +1009,35 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         f(self, len)
     }
 
-    fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T { f(self) }
+    fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T { expect_value!(); f(self) }
 
-    fn read_map<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
-    fn read_map_elt_key<T>(&mut self, _idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
-    fn read_map_elt_val<T>(&mut self, _idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
+    fn read_map<T>(&mut self, f: |&mut Decoder<'a>, uint| -> T) -> T {
+        expect_value!(); 
+        let len = match self.stack.pop() {
+            Some(&Dict(ref m)) => {
+                for (key, value) in m.iter() {
+                    self.keys.push(key.clone());
+                    self.stack.push(value);
+                }
+                m.len()
+            }
+            _ => fail!()
+        };
+        f(self, len)
+    }
+
+    fn read_map_elt_key<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        expect_value!(); 
+        self.expect_key = true;
+        let res = f(self);
+        self.expect_key = false;
+        res
+    }
+
+    fn read_map_elt_val<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
+        expect_value!(); 
+        f(self)
+    }
 }
 
 #[cfg(test)]
@@ -897,6 +1045,7 @@ mod tests {
     use std::str::raw;
     use serialize::{Encodable, Decodable};
     use collections::treemap::TreeMap;
+    use collections::hashmap::HashMap;
 
     use super::{Bencode, ToBencode, Error};
     use super::{Encoder, ByteString, List, Number, Dict, Key};
@@ -906,9 +1055,12 @@ mod tests {
     use super::alphanum_to_str;
 
     macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
-        let v = $value;
-        let result = Encoder::buffer_encode(&v);
-        assert_eq!($expected, result);
+        let value = $value;
+        let encoded = match Encoder::buffer_encode(&value) {
+            Ok(e) => e,
+            Err(err) => fail!("Unexpected failure: {}", err)
+        };
+        assert_eq!($expected, encoded);
     }))
 
     macro_rules! gen_encode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
@@ -930,7 +1082,10 @@ mod tests {
 
     macro_rules! assert_identity(($value:expr) => ({
         let value = $value;
-        let encoded = Encoder::buffer_encode(&value);
+        let encoded = match Encoder::buffer_encode(&value) {
+            Ok(e) => e,
+            Err(err) => fail!("Unexpected failure: {}", err)
+        };
         let bencode = super::from_owned(encoded).unwrap();
         let mut decoder = Decoder::new(&bencode);
         let result = Decodable::decode(&mut decoder);
@@ -1287,6 +1442,38 @@ mod tests {
                                            7:is_true4:true\
                                           e"))
 
+    macro_rules! map(($m:ident, $(($key:expr, $val:expr)),*) => {{
+        let mut _m = $m::new();
+        $(_m.insert($key, $val);)*
+        _m
+    }})
+
+    gen_complete_test!(encodes_hashmap,
+                       bencode_hashmap,
+                       identity_hashmap,
+                       map!(HashMap, (~"a", 1)) -> bytes("d1:ai1ee"),
+                       map!(HashMap, (~"foo", ~"a"), (~"bar", ~"bb")) -> bytes("d3:bar2:bb3:foo1:ae"))
+
+    gen_complete_test!(encodes_nested_hashmap,
+                       bencode_nested_hashmap,
+                       identity_nested_hashmap,
+                       map!(HashMap, (~"a", map!(HashMap, (~"foo", 101), (~"bar", 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
+    #[test]
+    #[should_fail]
+    fn decode_error_on_wrong_map_key_type() {
+        let benc = Dict(map!(TreeMap, (Key(bytes("foo")), ByteString(bytes("bar")))));
+        let mut decoder = Decoder::new(&benc);
+        let _res: TreeMap<int, ~str> = Decodable::decode(&mut decoder);
+    }
+
+    #[test]
+    #[should_fail]
+    fn encode_error_on_wrong_map_key_type() {
+        let m = map!(HashMap, (1, "foo"));
+        let encoded = Encoder::buffer_encode(&m);
+        assert!(encoded.is_err())
+    }
+
     #[test]
     fn encodes_struct_fields_in_sorted_order() {
         #[deriving(Encodable)]
@@ -1302,7 +1489,7 @@ mod tests {
             ab: 3,
             aa: 2
         };
-        assert_eq!(Encoder::buffer_encode(&s), bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee"));
+        assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
     #[test]
@@ -1714,7 +1901,7 @@ mod bench {
     #[bench]
     fn decode_large_vec_of_uint(bh: &mut BenchHarness) {
         let v = vec::from_fn(100, |n| n);
-        let b = Encoder::buffer_encode(&v);
+        let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().move_iter());
             let mut parser = Parser::new(streaming_parser);
