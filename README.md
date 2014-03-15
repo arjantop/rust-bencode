@@ -9,3 +9,7 @@ git clone https://github.com/arjantop/rust-bencode
 cd rust-bencode
 make
 ```
+
+## Documentation
+
+On [rust-ci.org](http://www.rust-ci.org/arjantop/rust-bencode/doc/bencode/)
