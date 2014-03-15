@@ -39,7 +39,6 @@
       let s = MyStruct { string: ~"Hello bencode", id: 1 };
       let result: ~[u8] = Encoder::buffer_encode(&s).unwrap();
   }
-  
   ```
 
   ## Using `ToBencode`
@@ -104,7 +103,7 @@
       let result: MyStruct = Decodable::decode(&mut decoder);
       assert!(s == result)
   }
-  ```  
+  ```
 
   ## Using `FromBencode`
 
@@ -209,6 +208,7 @@ use collections::hashmap::HashMap;
 
 #[deriving(Eq, Clone)]
 pub enum Bencode {
+    Empty,
     Number(i64),
     ByteString(~[u8]),
     List(List),
@@ -218,6 +218,7 @@ pub enum Bencode {
 impl fmt::Show for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            &Empty => { Ok(()) }
             &Number(v) => write!(fmt.buf, "{}", v),
             &ByteString(ref v) => write!(fmt.buf, "s{}", v),
             &List(ref v) => write!(fmt.buf, "{}", v),
@@ -269,6 +270,7 @@ impl Key {
 impl<E: serialize::Encoder> Encodable<E> for Bencode {
     fn encode(&self, e: &mut E) {
         match self {
+            &Empty => (),
             &Number(v) => e.emit_i64(v),
             &ByteString(ref v) => e.emit_str(unsafe { raw::from_utf8(*v) }),
             &List(ref v) => v.encode(e),
@@ -313,6 +315,28 @@ impl FromBencode for () {
     }
 }
 
+impl<T: ToBencode> ToBencode for Option<T> {
+    fn to_bencode(&self) -> Bencode {
+        match self {
+            &Some(ref v) => v.to_bencode(),
+            &None => ByteString((~"nil").into_bytes())
+        }
+    }
+}
+
+impl<T: FromBencode> FromBencode for Option<T> {
+    fn from_bencode(bencode: &Bencode) -> Option<Option<T>> {
+        match bencode {
+            &ByteString(ref v) => {
+                if v.as_slice() == bytes!("nil") {
+                    return Some(None)
+                }
+            }
+            _ => ()
+        }
+        FromBencode::from_bencode(bencode).map(|v| Some(v))
+    }
+}
 macro_rules! derive_num_to_bencode(($t:ty) => (
     impl ToBencode for $t {
         fn to_bencode(&self) -> Bencode { Number(*self as i64) }
@@ -472,7 +496,7 @@ impl<T: FromBencode> FromBencode for ~[T] {
                     match FromBencode::from_bencode(e) {
                         Some(v) => list.push(v),
                         None => return None
-                    } 
+                    }
                 }
                 Some(list)
             }
@@ -570,6 +594,7 @@ pub struct Encoder<'a> {
     priv expect_key: bool,
     priv keys: Vec<Key>,
     priv error: io::IoResult<()>,
+    priv is_none: bool,
     priv stack: Vec<TreeMap<Key, ~[u8]>>,
 }
 
@@ -581,6 +606,7 @@ impl<'a> Encoder<'a> {
             expect_key: false,
             keys: Vec::new(),
             error: Ok(()),
+            is_none: false,
             stack: Vec::new()
         }
     }
@@ -654,7 +680,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_i64(&mut self, v: i64) { expect_value!(); tryenc!(write!(self.get_writer(), "i{}e", v)) }
 
     fn emit_bool(&mut self, v: bool) {
-        expect_value!(); 
+        expect_value!();
         if v {
             self.emit_str("true");
         } else {
@@ -663,12 +689,12 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     }
 
     fn emit_f32(&mut self, v: f32) {
-        expect_value!(); 
+        expect_value!();
         self.emit_str(std::f32::to_str_hex(v));
     }
 
     fn emit_f64(&mut self, v: f64) {
-        expect_value!(); 
+        expect_value!();
         self.emit_str(std::f64::to_str_hex(v));
     }
 
@@ -690,65 +716,81 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_enum_struct_variant_field(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
 
     fn emit_struct(&mut self, _name: &str, _len: uint, f: |&mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         self.stack.push(TreeMap::new());
         f(self);
         let dict = self.stack.pop().unwrap();
         self.encode_dict(&dict);
+        self.is_none = false;
     }
 
     fn emit_struct_field(&mut self, f_name: &str, _f_idx: uint, f: |&mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         self.writers.push(io::MemWriter::new());
         f(self);
         let data = self.writers.pop().unwrap();
         let dict = self.stack.mut_last().unwrap();
-        dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
+        if !self.is_none {
+            dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
+        }
+        self.is_none = false;
     }
 
     fn emit_tuple(&mut self, _len: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
     fn emit_tuple_arg(&mut self, _idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
     fn emit_tuple_struct(&mut self, _name: &str, _len: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
     fn emit_tuple_struct_arg(&mut self, _f_idx: uint, _f: |&mut Encoder<'a>|) { unimplemented!(); }
-    fn emit_option(&mut self, _f: |&mut Encoder<'a>|) { unimplemented!(); }
-    fn emit_option_none(&mut self) { unimplemented!(); }
-    fn emit_option_some(&mut self, _f: |&mut Encoder<'a>|) { unimplemented!(); }
+
+    fn emit_option(&mut self, f: |&mut Encoder<'a>|) { expect_value!(); f(self); }
+
+    fn emit_option_none(&mut self) {
+        expect_value!();
+        tryenc!(write!(self.get_writer(), "3:nil"));
+        self.is_none = true;
+    }
+
+    fn emit_option_some(&mut self, f: |&mut Encoder<'a>|) { expect_value!(); f(self); }
 
     fn emit_seq(&mut self, _len: uint, f: |this: &mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         tryenc!(write!(self.get_writer(), "l"));
         f(self);
         tryenc!(write!(self.get_writer(), "e"));
+        self.is_none = false;
     }
 
     fn emit_seq_elt(&mut self, _idx: uint, f: |this: &mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         f(self);
+        self.is_none = false;
     }
 
     fn emit_map(&mut self, _len: uint, f: |&mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         self.stack.push(TreeMap::new());
         f(self);
         let dict = self.stack.pop().unwrap();
         self.encode_dict(&dict);
+        self.is_none = false;
     }
 
     fn emit_map_elt_key(&mut self, _idx: uint, f: |&mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         self.writers.push(io::MemWriter::new());
         self.expect_key = true;
         f(self);
         self.expect_key = false;
+        self.is_none = false;
     }
 
     fn emit_map_elt_val(&mut self, _idx: uint, f: |&mut Encoder<'a>|) {
-        expect_value!(); 
+        expect_value!();
         f(self);
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
         let dict = self.stack.mut_last().unwrap();
         dict.insert(key.unwrap(), data.unwrap());
+        self.is_none = false;
     }
 }
 
@@ -817,7 +859,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         self.curr = self.reader.next();
         self.end = self.curr.is_none();
     }
-    
+
     fn next_bytes(&mut self, len: uint) -> Result<~[u8], Error> {
         let mut bytes = vec::with_capacity(len);
         for _ in range(0, len) {
@@ -961,12 +1003,16 @@ impl<T: Iterator<u8>> StreamingParser<T> {
             _ => self.error(~"i or 0-9 or l or d or e")
         }
     }
+
+    fn empty_input(&self) -> bool {
+        self.curr == None && self.decoded == 0
+    }
 }
 
 impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
     #[inline(always)]
     fn next(&mut self) -> Option<BencodeEvent> {
-        if self.end {
+        if self.end || self.empty_input() {
             return None
         }
         let result = match self.stack.pop() {
@@ -1026,6 +1072,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
             Some(ListStart) => self.parse_list(current),
             Some(DictStart) => self.parse_dict(current),
             Some(ParseError(err)) => Err(err),
+            None => Ok(Empty),
             x => fail!("[root] Unreachable but got {}", x)
         };
         if self.depth == 0 {
@@ -1085,6 +1132,8 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
         Ok(Dict(map))
     }
 }
+
+static EMPTY: Bencode = Empty;
 
 pub struct Decoder<'a> {
     priv keys: Vec<Key>,
@@ -1157,21 +1206,21 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
 
     fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         let res = f(self);
         self.stack.pop();
         res
     }
 
     fn read_struct_field<T>(&mut self, f_name: &str, _f_idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         let val = match self.stack.last() {
             Some(v) => {
                 match *v {
                     &Dict(ref m) => {
                         match m.find(&Key(f_name.as_bytes().to_owned())) {
                             Some(v) => v,
-                            None => fail!()
+                            None => &EMPTY
                         }
                     }
                     _ => fail!()
@@ -1187,10 +1236,28 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
     fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> T) -> T { unimplemented!(); }
     fn read_tuple_struct_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> T) -> T { unimplemented!(); }
-    fn read_option<T>(&mut self, _f: |&mut Decoder<'a>, bool| -> T) -> T { unimplemented!(); }
+
+    fn read_option<T>(&mut self, f: |&mut Decoder<'a>, bool| -> T) -> T {
+        match self.stack.pop() {
+            Some(&Empty) => f(self, false),
+            Some(b@&ByteString(ref v)) => {
+                if v.as_slice() == bytes!("nil") {
+                    f(self, false)
+                } else {
+                    self.stack.push(b);
+                    f(self, true)
+                }
+            },
+            Some(v) => {
+                self.stack.push(v);
+                f(self, true)
+            }
+            None => fail!()
+        }
+    }
 
     fn read_seq<T>(&mut self, f: |&mut Decoder<'a>, uint| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
                 for v in list.rev_iter() {
@@ -1206,7 +1273,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T { expect_value!(); f(self) }
 
     fn read_map<T>(&mut self, f: |&mut Decoder<'a>, uint| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         let len = match self.stack.pop() {
             Some(&Dict(ref m)) => {
                 for (key, value) in m.iter() {
@@ -1221,7 +1288,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     }
 
     fn read_map_elt_key<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         self.expect_key = true;
         let res = f(self);
         self.expect_key = false;
@@ -1229,7 +1296,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     }
 
     fn read_map_elt_val<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> T) -> T {
-        expect_value!(); 
+        expect_value!();
         f(self)
     }
 }
@@ -1242,7 +1309,7 @@ mod tests {
     use collections::hashmap::HashMap;
 
     use super::{Bencode, ToBencode, Error};
-    use super::{Encoder, ByteString, List, Number, Dict, Key};
+    use super::{Encoder, ByteString, List, Number, Dict, Key, Empty};
     use super::{StreamingParser, BencodeEvent, NumberValue, ByteStringValue,
                 ListStart, ListEnd, DictStart, DictKey, DictEnd, ParseError};
     use super::{Parser, Decoder};
@@ -1255,6 +1322,13 @@ mod tests {
             Err(err) => fail!("Unexpected failure: {}", err)
         };
         assert_eq!($expected, encoded);
+    }))
+
+    macro_rules! assert_decoding(($enc:expr, $value:expr) => ({
+        let bencode = super::from_owned($enc).unwrap();
+        let mut decoder = Decoder::new(&bencode);
+        let result = Decodable::decode(&mut decoder);
+        assert_eq!($value, result);
     }))
 
     macro_rules! gen_encode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
@@ -1312,6 +1386,38 @@ mod tests {
                        tobencode_unit,
                        identity_unit,
                        () -> bytes("0:"))
+
+    gen_complete_test!(encodes_option_none,
+                       tobencode_option_none,
+                       identity_option_none,
+                       {
+                           let none: Option<int> = None;
+                           none
+                       } -> bytes("3:nil"))
+
+    gen_complete_test!(encodes_option_some,
+                       tobencode_option_some,
+                       identity_option_some,
+                       Some(1) -> bytes("i1e"),
+                       Some(~"rust") -> bytes("4:rust"),
+                       Some(~[(), ()]) -> bytes("l0:0:e"))
+
+    gen_complete_test!(encodes_nested_option,
+                       tobencode_nested_option,
+                       identity_nested_option,
+                       Some(Some(1)) -> bytes("i1e"),
+                       Some(Some(~"rust")) -> bytes("4:rust"))
+
+    #[test]
+    fn option_is_none_if_any_nested_option_is_none() {
+        let value: Option<Option<int>> = Some(None);
+        let encoded = match Encoder::buffer_encode(&value) {
+            Ok(e) => e,
+            Err(err) => fail!("Unexpected failure: {}", err)
+        };
+        let none: Option<Option<int>> = None;
+        assert_decoding!(encoded, none);
+    }
 
     gen_complete_test!(encodes_zero_int,
                        tobencode_zero_int,
@@ -1603,7 +1709,7 @@ mod tests {
                               } -> bytes("d1:ai1234567890e1:blee"))
 
     gen_encode_identity_test!(encodes_nested_struct,
-                              identity_nested_Struct,
+                              identity_nested_struct,
                               OuterStruct {
                                   is_true: true,
                                   inner: ~[InnerStruct {
@@ -1685,6 +1791,56 @@ mod tests {
         };
         assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
+
+    #[deriving(Encodable, Decodable, Eq, Show, Clone)]
+    struct OptionalStruct {
+        a: Option<int>,
+        b: int,
+        c: Option<~[Option<bool>]>,
+    }
+
+    #[deriving(Encodable, Decodable, Eq, Show)]
+    struct OptionalStructOuter {
+        a: Option<OptionalStruct>,
+        b: Option<int>,
+    }
+
+    static OPT_STRUCT: OptionalStruct = OptionalStruct {
+        a: None,
+        b: 10,
+        c: None
+    };
+
+    #[test]
+    fn struct_option_none_fields_are_not_encoded() {
+        assert_encoding!(OPT_STRUCT.clone(), bytes("d1:bi10ee"));
+    }
+
+
+    #[test]
+    fn struct_options_not_present_default_to_none() {
+        assert_decoding!(bytes("d1:bi10ee"), OPT_STRUCT.clone());
+    }
+
+    gen_encode_identity_test!(encodes_nested_struct_fields,
+                              identity_nested_struct_field,
+                              {
+                                  OptionalStructOuter {
+                                      a: Some(OPT_STRUCT.clone()),
+                                      b: None
+                                  }
+                              } -> bytes("d1:ad1:bi10eee"),
+                              {
+                                  let a = OptionalStruct {
+                                      a: None,
+                                      b: 10,
+                                      c: Some(~[Some(true), None])
+                                  };
+                                  OptionalStructOuter {
+                                      a: Some(a),
+                                      b: Some(99)
+                                  }
+                              } -> bytes("d1:ad1:bi10e1:cl4:true3:nilee1:bi99ee"))
 
     fn try_bencode(bencode: Bencode) -> ~[u8] {
         match bencode.to_bytes() {
@@ -1774,6 +1930,11 @@ mod tests {
                                 pos: 0,
                                 msg: msg })]);
         }
+    }
+
+    #[test]
+    fn parses_empty_input() {
+        assert_stream_eq("", []);
     }
 
     #[test]
@@ -1960,6 +2121,11 @@ mod tests {
         let mut parser = Parser::new(events.to_owned().move_iter());
         let result = parser.parse();
         assert_eq!(expected, result);
+    }
+
+    #[test]
+    fn decodes_empty_input() {
+        assert_decoded_eq([], Ok(Empty));
     }
 
     #[test]
