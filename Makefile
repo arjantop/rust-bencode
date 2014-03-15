@@ -1,9 +1,10 @@
 RUSTC = rustc
+RUSTDOC = rustdoc
 RUSTFLAGS = -O
 BUILDDIR = build
 TESTDIR = $(BUILDDIR)/test
 
-all: $(BUILDDIR) test lib
+all: $(BUILDDIR) test lib docs
 
 $(BUILDDIR):
 	mkdir -p $@
@@ -12,14 +13,22 @@ $(TESTDIR): $(BUILDDIR)
 	mkdir -p $@
 
 lib:
-	${RUSTC} ${RUSTFLAGS} --out-dir $(BUILDDIR) src/bencode.rs
+	$(RUSTC) $(RUSTFLAGS) --out-dir $(BUILDDIR) src/bencode.rs
 
 clean:
 	rm -rf $(BUILDDIR)
 
-test: $(TESTDIR)
-	${RUSTC} ${RUSTFLAGS} --test -o $(TESTDIR)/test src/bencode.rs
+test: libtest doctest
+
+libtest: $(TESTDIR)
+	$(RUSTC) $(RUSTFLAGS) --test -o $(TESTDIR)/test src/bencode.rs
 	RUST_LOG=std::rt::backtrace ./$(TESTDIR)/test
 
-bench: test
+bench: libtest
 	./$(TESTDIR)/test --bench
+
+doctest: lib
+	$(RUSTDOC) -L $(BUILDDIR) --test src/bencode.rs
+
+docs:
+	$(RUSTDOC) src/bencode.rs

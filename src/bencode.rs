@@ -14,6 +14,183 @@
 #[allow(deprecated_owned_vector)];
 #[feature(macro_rules)];
 
+/*!
+  Bencode parsing and serialization
+
+  # Encoding
+
+  ## Using `Encodable`
+
+  ```rust
+  extern crate serialize;
+  extern crate bencode;
+
+  use serialize::Encodable;
+
+  use bencode::Encoder;
+
+  #[deriving(Encodable)]
+  struct MyStruct {
+      string: ~str,
+      id: uint,
+  }
+
+  fn main() {
+      let s = MyStruct { string: ~"Hello bencode", id: 1 };
+      let result: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+  }
+  
+  ```
+
+  ## Using `ToBencode`
+
+  ```rust
+  extern crate collections;
+  extern crate bencode;
+
+  use collections::TreeMap;
+
+  use bencode::{Key, ToBencode};
+
+  struct MyStruct {
+      a: int,
+      b: ~str,
+      c: ~[u8],
+  }
+
+  impl ToBencode for MyStruct {
+      fn to_bencode(&self) -> bencode::Bencode {
+          let mut m = TreeMap::new();
+          m.insert(Key::from_str("a"), self.a.to_bencode());
+          m.insert(Key::from_str("b"), self.b.to_bencode());
+          m.insert(Key::from_str("c"), bencode::ByteString(self.c.clone()));
+          bencode::Dict(m)
+      }
+  }
+
+  fn main() {
+      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let bencode: bencode::Bencode = s.to_bencode();
+      let result: ~[u8] = bencode.to_bytes().unwrap();
+  }
+
+  ```
+
+  # Decoding
+
+  ## Using `Decodable`
+
+  ```rust
+  extern crate serialize;
+  extern crate bencode;
+
+  use serialize::{Encodable, Decodable};
+
+  use bencode::{Encoder, Decoder};
+
+  #[deriving(Encodable, Decodable, Eq)]
+  struct MyStruct {
+      a: int,
+      b: ~str,
+      c: ~[u8],
+  }
+
+  fn main() {
+      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let enc: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+
+      let bencode: bencode::Bencode = bencode::from_owned(enc).unwrap();
+      let mut decoder = Decoder::new(&bencode);
+      let result: MyStruct = Decodable::decode(&mut decoder);
+      assert!(s == result)
+  }
+  ```  
+
+  ## Using `FromBencode`
+
+  ```rust
+  extern crate collections;
+  extern crate bencode;
+
+  use collections::TreeMap;
+
+  use bencode::{FromBencode, ToBencode, Dict, Key};
+
+  #[deriving(Eq)]
+  struct MyStruct {
+      a: int
+  }
+
+  impl ToBencode for MyStruct {
+      fn to_bencode(&self) -> bencode::Bencode {
+          let mut m = TreeMap::new();
+          m.insert(Key::from_str("a"), self.a.to_bencode());
+          bencode::Dict(m)
+      }
+  }
+
+  impl FromBencode for MyStruct {
+      fn from_bencode(bencode: &bencode::Bencode) -> Option<MyStruct> {
+          match bencode {
+              &Dict(ref m) => {
+                  match m.find(&Key::from_str("a")) {
+                      Some(a) => FromBencode::from_bencode(a).map(|a| {
+                          MyStruct{ a: a }
+                      }),
+                      _ => None
+                  }
+              }
+              _ => None
+          }
+      }
+  }
+
+  fn main() {
+      let s = MyStruct{ a: 5 };
+      let enc: ~[u8] = s.to_bencode().to_bytes().unwrap();
+
+      let bencode: bencode::Bencode = bencode::from_owned(enc).unwrap();
+      let result: MyStruct = FromBencode::from_bencode(&bencode).unwrap();
+      assert!(s == result)
+  }
+  ```
+
+  ## Using Streaming Parser
+
+  ```rust
+  extern crate serialize;
+  extern crate bencode;
+
+  use bencode::{StreamingParser};
+  use serialize::Encodable;
+
+  use bencode::Encoder;
+
+  #[deriving(Encodable, Decodable, Eq)]
+  struct MyStruct {
+      a: int,
+      b: ~str,
+      c: ~[u8],
+  }
+
+  fn main() {
+      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let enc: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+
+      let mut streaming = StreamingParser::new(enc.move_iter());
+      for event in streaming {
+          match event {
+              bencode::DictStart => println!("dict start"),
+              bencode::DictEnd => println!("dict end"),
+              bencode::NumberValue(n) => println!("number = {}", n),
+              // ...
+              _ => println!("Unhandled event: {}", event)
+          }
+      }
+  }
+  ```
+*/
+
 extern crate collections;
 extern crate serialize;
 
@@ -74,10 +251,18 @@ impl Bencode {
         encoder.error
     }
 
-    pub fn to_bytes(&self) -> ~[u8] {
+    pub fn to_bytes(&self) -> io::IoResult<~[u8]> {
         let mut writer = io::MemWriter::new();
-        self.to_writer(&mut writer).unwrap();
-        writer.unwrap()
+        match self.to_writer(&mut writer) {
+            Ok(_) => Ok(writer.unwrap()),
+            Err(err) => Err(err)
+        }
+    }
+}
+
+impl Key {
+    pub fn from_str(s: &'static str) -> Key {
+        Key(s.as_bytes().to_owned())
     }
 }
 
@@ -610,7 +795,7 @@ macro_rules! expect(($ch:pat, $ex:expr) => (
 
 macro_rules! check_nesting(() => (
     if self.decoded > 0 && self.stack.len() == 0 {
-        return try!(self.error_msg(~"Only one value allowed outside of containers"))
+        return self.error_msg(~"Only one value allowed outside of containers")
     }
 ))
 
@@ -648,6 +833,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         Ok(bytes)
     }
 
+    #[inline(always)]
     fn curr_char(&mut self) -> Option<char> {
         self.curr.map(|v| v as char)
     }
@@ -668,6 +854,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         })
     }
 
+    #[inline(always)]
     fn parse_number(&mut self) -> Result<i64, Error> {
         let sign = match self.curr_char() {
             Some('-') => {
@@ -681,6 +868,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         Ok(sign * num)
     }
 
+    #[inline(always)]
     fn parse_number_unsigned(&mut self) -> Result<i64, Error> {
         let mut num = 0;
         match self.curr_char() {
@@ -699,11 +887,13 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         Ok(num)
     }
 
+    #[inline(always)]
     fn parse_digit(&self, ch: char, num: &mut i64) {
         *num *= 10;
         *num += ch.to_digit(10).unwrap() as i64;
     }
 
+    #[inline(always)]
     fn parse_bytestring(&mut self) -> Result<~[u8], Error> {
         let len = try!(self.parse_number_unsigned());
         expect!(':', ~":");
@@ -711,6 +901,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         Ok(bytes)
     }
 
+    #[inline(always)]
     fn parse_end(&mut self) -> Result<BencodeEvent, Error> {
         self.next_byte();
         match self.stack.pop() {
@@ -722,6 +913,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         }
     }
 
+    #[inline(always)]
     fn parse_key(&mut self) -> Result<BencodeEvent, Error> {
         check_nesting!();
         match self.curr_char() {
@@ -735,6 +927,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         }
     }
 
+    #[inline(always)]
     fn parse_event(&mut self) -> Result<BencodeEvent, Error> {
         match self.curr_char() {
             Some('i') => {
@@ -771,6 +964,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
 }
 
 impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
+    #[inline(always)]
     fn next(&mut self) -> Option<BencodeEvent> {
         if self.end {
             return None
@@ -808,8 +1002,8 @@ fn alphanum_to_str(ch: char) -> ~str {
 }
 
 pub struct Parser<T> {
-    reader: T,
-    depth: u32,
+    priv reader: T,
+    priv depth: u32,
 }
 
 impl<T: Iterator<BencodeEvent>> Parser<T> {
@@ -1492,48 +1686,55 @@ mod tests {
         assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
+    fn try_bencode(bencode: Bencode) -> ~[u8] {
+        match bencode.to_bytes() {
+            Ok(v) => v,
+            Err(err) => fail!("Unexpected error: {}", err)
+        }
+    }
+
     #[test]
     fn encodes_empty_bytestring() {
-        assert_eq!(ByteString(~[]).to_bytes(), bytes("0:"));
+        assert_eq!(try_bencode(ByteString(~[])), bytes("0:"));
     }
 
     #[test]
     fn encodes_nonempty_bytestring() {
-        assert_eq!(ByteString((~"abc").into_bytes()).to_bytes(), bytes("3:abc"));
-        assert_eq!(ByteString(~[0, 1, 2, 3]).to_bytes(), bytes("4:") + ~[0u8, 1, 2, 3]);
+        assert_eq!(try_bencode(ByteString((~"abc").into_bytes())), bytes("3:abc"));
+        assert_eq!(try_bencode(ByteString(~[0, 1, 2, 3])), bytes("4:") + ~[0u8, 1, 2, 3]);
     }
 
     #[test]
     fn encodes_empty_list() {
-        assert_eq!(List(~[]).to_bytes(), bytes("le"));
+        assert_eq!(try_bencode(List(~[])), bytes("le"));
     }
 
     #[test]
     fn encodes_nonempty_list() {
-        assert_eq!(List(~[Number(1)]).to_bytes(), bytes("li1ee"));
-        assert_eq!(List(~[ByteString((~"foobar").into_bytes()),
-                          Number(-1)]).to_bytes(), bytes("l6:foobari-1ee"));
+        assert_eq!(try_bencode(List(~[Number(1)])), bytes("li1ee"));
+        assert_eq!(try_bencode(List(~[ByteString((~"foobar").into_bytes()),
+                          Number(-1)])), bytes("l6:foobari-1ee"));
     }
 
     #[test]
     fn encodes_nested_list() {
-        assert_eq!(List(~[List(~[])]).to_bytes(), bytes("llee"));
+        assert_eq!(try_bencode(List(~[List(~[])])), bytes("llee"));
         let list = List(~[Number(1988), List(~[Number(2014)])]);
-        assert_eq!(list.to_bytes(), bytes("li1988eli2014eee"));
+        assert_eq!(try_bencode(list), bytes("li1988eli2014eee"));
     }
 
     #[test]
     fn encodes_empty_dict() {
-        assert_eq!(Dict(TreeMap::new()).to_bytes(), bytes("de"));
+        assert_eq!(try_bencode(Dict(TreeMap::new())), bytes("de"));
     }
 
     #[test]
     fn encodes_dict_with_items() {
         let mut m = TreeMap::new();
         m.insert(Key((~"k1").into_bytes()), Number(1));
-        assert_eq!(Dict(m.clone()).to_bytes(), bytes("d2:k1i1ee"));
+        assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1ee"));
         m.insert(Key((~"k2").into_bytes()), ByteString(~[0, 0]));
-        assert_eq!(Dict(m.clone()).to_bytes(), bytes("d2:k1i1e2:k22:\0\0e"));
+        assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1e2:k22:\0\0e"));
     }
 
     #[test]
@@ -1542,7 +1743,7 @@ mod tests {
         let mut inner = TreeMap::new();
         inner.insert(Key((~"val").into_bytes()), ByteString(~[68, 0, 90]));
         outer.insert(Key((~"inner").into_bytes()), Dict(inner));
-        assert_eq!(Dict(outer).to_bytes(), bytes("d5:innerd3:val3:D\0Zee"));
+        assert_eq!(try_bencode(Dict(outer)), bytes("d5:innerd3:val3:D\0Zee"));
     }
 
     #[test]
@@ -1551,7 +1752,7 @@ mod tests {
         m.insert(Key((~"z").into_bytes()), Number(1));
         m.insert(Key((~"abd").into_bytes()), Number(3));
         m.insert(Key((~"abc").into_bytes()), Number(2));
-        assert_eq!(Dict(m).to_bytes(), bytes("d3:abci2e3:abdi3e1:zi1ee"));
+        assert_eq!(try_bencode(Dict(m)), bytes("d3:abci2e3:abdi3e1:zi1ee"));
     }
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
