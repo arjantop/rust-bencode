@@ -21,11 +21,12 @@ clean:
 test: libtest doctest
 
 libtest: $(TESTDIR)
-	$(RUSTC) $(RUSTFLAGS) --test -o $(TESTDIR)/test src/bencode.rs
+	$(RUSTC) --test -o $(TESTDIR)/test src/bencode.rs
 	RUST_LOG=std::rt::backtrace ./$(TESTDIR)/test
 
-bench: libtest
-	./$(TESTDIR)/test --bench
+bench: $(TESTDIR)
+	$(RUSTC) $(RUSTFLAGS) --test -o $(TESTDIR)/bench src/bencode.rs
+	./$(TESTDIR)/bench --bench
 
 doctest: lib
 	$(RUSTDOC) -L $(BUILDDIR) --test src/bencode.rs
