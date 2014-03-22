@@ -198,8 +198,8 @@ use std::io::{IoResult, IoError};
 use std::fmt;
 use std::str;
 use std::str::raw;
-use std::vec;
-use std::vec_ng::Vec;
+use std::slice;
+use std::vec::Vec;
 
 use serialize::{Encodable};
 
@@ -861,7 +861,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     }
 
     fn next_bytes(&mut self, len: uint) -> Result<~[u8], Error> {
-        let mut bytes = vec::with_capacity(len);
+        let mut bytes = slice::with_capacity(len);
         for _ in range(0, len) {
             match self.curr {
                 Some(x) =>  bytes.push(x),
@@ -2244,7 +2244,7 @@ mod bench {
     use self::test::BenchHarness;
 
     use std::io;
-    use std::vec;
+    use std::slice;
 
     use serialize::{Encodable, Decodable};
 
@@ -2252,7 +2252,7 @@ mod bench {
 
     #[bench]
     fn encode_large_vec_of_uint(bh: &mut BenchHarness) {
-        let v = vec::from_fn(100, |n| n);
+        let v = slice::from_fn(100, |n| n);
         bh.iter(|| {
             let mut w = io::MemWriter::with_capacity(v.len() * 10);
             {
@@ -2267,7 +2267,7 @@ mod bench {
 
     #[bench]
     fn decode_large_vec_of_uint(bh: &mut BenchHarness) {
-        let v = vec::from_fn(100, |n| n);
+        let v = slice::from_fn(100, |n| n);
         let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().move_iter());
