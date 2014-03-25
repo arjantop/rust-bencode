@@ -1913,7 +1913,7 @@ mod tests {
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
         let mut parser = StreamingParser::new(encoded.bytes());
-        let result = parser.to_owned_vec();
+        let result = parser.collect::<Vec<_>>();
         assert_eq!(expected, result.as_slice());
     }
 
