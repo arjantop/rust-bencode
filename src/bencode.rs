@@ -756,10 +756,19 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         Ok(())
     }
 
-    fn emit_tuple(&mut self, _len: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> { unimplemented!(); }
-    fn emit_tuple_arg(&mut self, _idx: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> { unimplemented!(); }
-    fn emit_tuple_struct(&mut self, _name: &str, _len: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> { unimplemented!(); }
-    fn emit_tuple_struct_arg(&mut self, _f_idx: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> { unimplemented!(); }
+    fn emit_tuple(&mut self, _len: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
+        self.error("emit_tuple not implemented")
+    }
+
+    fn emit_tuple_arg(&mut self, _idx: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
+        self.error("emit_tuple_arg not implemented")
+    }
+    fn emit_tuple_struct(&mut self, _name: &str, _len: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
+        self.error("emit_tuple_struct not implemented")
+    }
+    fn emit_tuple_struct_arg(&mut self, _f_idx: uint, _f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
+        self.error("emit_tuple_struct_arg not implemented")
+    }
 
     fn emit_option(&mut self, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
         expect_value!();
@@ -1279,15 +1288,25 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
         }
     }
 
-    fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_enum not implemented")
+    }
 
-    fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_enum_variant not implemented")
+    }
 
-    fn read_enum_variant_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_enum_variant_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_enum_variant_arg not implemented")
+    }
 
-    fn read_enum_struct_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_enum_struct_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_enum_struct_variant not implemented")
+    }
 
-    fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_enum_struct_variant_field not implemented")
+    }
 
     fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
         expect_value!();
@@ -1316,13 +1335,21 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
         f(self)
     }
 
-    fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_tuple not implemented")
+    }
 
-    fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_tuple_arg not implemented")
+    }
 
-    fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_tuple_struct not implemented")
+    }
 
-    fn read_tuple_struct_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> { unimplemented!(); }
+    fn read_tuple_struct_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
+        self.error("read_tuple_struct_arg not implemented")
+    }
 
     fn read_option<T>(&mut self, f: |&mut Decoder<'a>, bool| -> DecoderResult<T>) -> DecoderResult<T> {
         match self.stack.pop() {
