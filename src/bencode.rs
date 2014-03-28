@@ -160,7 +160,8 @@
   extern crate serialize;
   extern crate bencode;
 
-  use bencode::{StreamingParser};
+  use bencode::streaming;
+  use bencode::streaming::StreamingParser;
   use serialize::Encodable;
 
   use bencode::Encoder;
@@ -179,9 +180,9 @@
       let mut streaming = StreamingParser::new(enc.move_iter());
       for event in streaming {
           match event {
-              bencode::DictStart => println!("dict start"),
-              bencode::DictEnd => println!("dict end"),
-              bencode::NumberValue(n) => println!("number = {}", n),
+              streaming::DictStart => println!("dict start"),
+              streaming::DictEnd => println!("dict end"),
+              streaming::NumberValue(n) => println!("number = {}", n),
               // ...
               _ => println!("Unhandled event: {}", event)
           }
