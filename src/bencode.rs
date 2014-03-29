@@ -925,9 +925,22 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
     }
 }
 
+macro_rules! dec_expect_value(() => {
+    if self.expect_key {
+        return Err(Message(~"Only 'string' map keys allowed"))
+    }
+})
+
 static EMPTY: Bencode = Empty;
 
-pub type DecoderResult<T> = IoResult<T>;
+#[deriving(Eq, Clone, Show)]
+pub enum DecoderError {
+    Message(~str),
+    Expecting(&'static str, ~str),
+    Unimplemented(&'static str),
+}
+
+pub type DecoderResult<T> = Result<T, DecoderError>;
 
 pub struct Decoder<'a> {
     priv keys: Vec<Key>,
@@ -944,133 +957,140 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    fn try_read<T: FromBencode>(&mut self) -> DecoderResult<T> {
-        Ok(self.stack.pop().and_then(|b| FromBencode::from_bencode(b)).unwrap())
+    fn try_read<T: FromBencode>(&mut self, ty: &'static str) -> DecoderResult<T> {
+        let val = self.stack.pop();
+        match val.and_then(|b| FromBencode::from_bencode(b)) {
+            Some(v) => Ok(v),
+            None => self.error(format!("Error decoding value as '{}': {}", ty, val))
+        }
     }
 
-    fn error<T>(&mut self, msg: &'static str) -> EncoderResult<T> {
-        Err(IoError {
-            kind: io::InvalidInput,
-            desc: msg,
-            detail: None
-        })
+    fn error<T>(&self, msg: ~str) -> DecoderResult<T> {
+        Err(Message(msg))
+    }
+
+    fn unimplemented<T>(&self, m: &'static str) -> DecoderResult<T> {
+        Err(Unimplemented(m))
     }
 }
 
-impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
+impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     fn read_nil(&mut self) -> DecoderResult<()> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("nil")
     }
 
     fn read_uint(&mut self) -> DecoderResult<uint> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("uint")
     }
 
     fn read_u8(&mut self) -> DecoderResult<u8> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("u8")
     }
 
     fn read_u16(&mut self) -> DecoderResult<u16> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("u16")
     }
 
     fn read_u32(&mut self) -> DecoderResult<u32> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("u32")
     }
 
     fn read_u64(&mut self) -> DecoderResult<u64> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("u64")
     }
 
     fn read_int(&mut self) -> DecoderResult<int> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("int")
     }
 
     fn read_i8(&mut self) -> DecoderResult<i8> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("i8")
     }
 
     fn read_i16(&mut self) -> DecoderResult<i16> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("i16")
     }
 
     fn read_i32(&mut self) -> DecoderResult<i32> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("i32")
     }
 
     fn read_i64(&mut self) -> DecoderResult<i64> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("i64")
     }
 
     fn read_bool(&mut self) -> DecoderResult<bool> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("bool")
     }
 
     fn read_f32(&mut self) -> DecoderResult<f32> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("f32")
     }
 
     fn read_f64(&mut self) -> DecoderResult<f64> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("f64")
     }
 
     fn read_char(&mut self) -> DecoderResult<char> {
-        expect_value!();
-        self.try_read()
+        dec_expect_value!();
+        self.try_read("char")
     }
 
     fn read_str(&mut self) -> DecoderResult<~str> {
         if self.expect_key {
             let Key(b) = self.keys.pop().unwrap();
-            Ok(str::from_utf8_owned(b).unwrap()) //TODO
+            match str::from_utf8_owned(b) {
+                Some(s) => Ok(s),
+                None => self.error(~"error decoding key as utf-8")
+            }
         } else {
-            self.try_read()
+            self.try_read("str")
         }
     }
 
     fn read_enum<T>(&mut self, _name: &str, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_enum not implemented")
+        self.unimplemented("read_enum")
     }
 
     fn read_enum_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_enum_variant not implemented")
+        self.unimplemented("read_enum_variant")
     }
 
     fn read_enum_variant_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_enum_variant_arg not implemented")
+        self.unimplemented("read_enum_variant_arg")
     }
 
     fn read_enum_struct_variant<T>(&mut self, _names: &[&str], _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_enum_struct_variant not implemented")
+        self.unimplemented("read_enum_struct_variant")
     }
 
     fn read_enum_struct_variant_field<T>(&mut self, _f_name: &str, _f_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_enum_struct_variant_field not implemented")
+        self.unimplemented("read_enum_struct_variant_field")
     }
 
     fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         let res = try!(f(self));
         self.stack.pop();
         Ok(res)
     }
 
     fn read_struct_field<T>(&mut self, f_name: &str, _f_idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         let val = match self.stack.last() {
             Some(v) => {
                 match *v {
@@ -1080,29 +1100,29 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
                             None => &EMPTY
                         }
                     }
-                    _ => fail!()
+                    _ => return Err(Expecting("Dict", v.to_str()))
                 }
             }
-            _ => fail!()
+            None => return Err(Expecting("Dict", ~"None"))
         };
         self.stack.push(val);
         f(self)
     }
 
     fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_tuple not implemented")
+        self.unimplemented("read_tuple")
     }
 
     fn read_tuple_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_tuple_arg not implemented")
+        self.unimplemented("read_tuple_arg")
     }
 
     fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_tuple_struct not implemented")
+        self.unimplemented("read_tuple_struct")
     }
 
     fn read_tuple_struct_arg<T>(&mut self, _a_idx: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        self.error("read_tuple_struct_arg not implemented")
+        self.unimplemented("read_tuple_struct_arg")
     }
 
     fn read_option<T>(&mut self, f: |&mut Decoder<'a>, bool| -> DecoderResult<T>) -> DecoderResult<T> {
@@ -1120,12 +1140,12 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
                 self.stack.push(v);
                 f(self, true)
             }
-            None => fail!()
+            None => return Err(Expecting("Bencode", ~"None"))
         }
     }
 
     fn read_seq<T>(&mut self, f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
                 for v in list.rev_iter() {
@@ -1133,18 +1153,18 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
                 }
                 list.len()
             }
-            _ => fail!()
+            val => return Err(Expecting("List", val.to_str()))
         };
         f(self, len)
     }
 
     fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         f(self)
     }
 
     fn read_map<T>(&mut self, f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         let len = match self.stack.pop() {
             Some(&Dict(ref m)) => {
                 for (key, value) in m.iter() {
@@ -1153,13 +1173,13 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
                 }
                 m.len()
             }
-            _ => fail!()
+            val => return Err(Expecting("Dict", val.to_str()))
         };
         f(self, len)
     }
 
     fn read_map_elt_key<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         self.expect_key = true;
         let res = try!(f(self));
         self.expect_key = false;
@@ -1167,7 +1187,7 @@ impl<'a> serialize::Decoder<IoError> for Decoder<'a> {
     }
 
     fn read_map_elt_val<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        expect_value!();
+        dec_expect_value!();
         f(self)
     }
 }
