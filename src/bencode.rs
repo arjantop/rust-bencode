@@ -6,13 +6,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#[crate_id = "bencode"];
-#[license = "MIT/ASL2"];
-#[crate_type = "rlib"];
-#[crate_type = "dylib"];
-#[deny(warnings)];
-#[allow(deprecated_owned_vector)];
-#[feature(macro_rules)];
+#![crate_id = "bencode"]
+#![license = "MIT/ASL2"]
+#![crate_type = "rlib"]
+#![crate_type = "dylib"]
+#![deny(warnings)]
+#![allow(deprecated_owned_vector)]
+#![feature(macro_rules)]
 
 /*!
   Bencode parsing and serialization
@@ -489,7 +489,7 @@ impl FromBencode for ~str {
 }
 
 impl<T: ToBencode> ToBencode for ~[T] {
-    fn to_bencode(&self) -> Bencode { List(self.map(|e| e.to_bencode())) }
+    fn to_bencode(&self) -> Bencode { List(self.iter().map(|e| e.to_bencode()).collect()) }
 }
 
 impl<T: FromBencode> FromBencode for ~[T] {
