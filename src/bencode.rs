@@ -596,13 +596,13 @@ macro_rules! tryenc(($e:expr) => (
 pub type EncoderResult<T> = IoResult<T>;
 
 pub struct Encoder<'a> {
-    priv writer: &'a mut io::Writer,
-    priv writers: Vec<io::MemWriter>,
-    priv expect_key: bool,
-    priv keys: Vec<Key>,
-    priv error: io::IoResult<()>,
-    priv is_none: bool,
-    priv stack: Vec<TreeMap<Key, ~[u8]>>,
+    writer: &'a mut io::Writer,
+    writers: Vec<io::MemWriter>,
+    expect_key: bool,
+    keys: Vec<Key>,
+    error: io::IoResult<()>,
+    is_none: bool,
+    stack: Vec<TreeMap<Key, ~[u8]>>,
 }
 
 impl<'a> Encoder<'a> {
@@ -840,8 +840,8 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 }
 
 pub struct Parser<T> {
-    priv reader: T,
-    priv depth: u32,
+    reader: T,
+    depth: u32,
 }
 
 impl<T: Iterator<BencodeEvent>> Parser<T> {
@@ -943,9 +943,9 @@ pub enum DecoderError {
 pub type DecoderResult<T> = Result<T, DecoderError>;
 
 pub struct Decoder<'a> {
-    priv keys: Vec<Key>,
-    priv expect_key: bool,
-    priv stack: Vec<&'a Bencode>,
+    keys: Vec<Key>,
+    expect_key: bool,
+    stack: Vec<&'a Bencode>,
 }
 
 impl<'a> Decoder<'a> {

@@ -14,8 +14,8 @@ pub enum BencodeEvent {
 
 #[deriving(Show, Eq, Clone)]
 pub struct Error {
-    pos: u32,
-    msg: ~str,
+    pub pos: u32,
+    pub msg: ~str,
 }
 
 #[deriving(Show, Eq, Clone)]
@@ -26,12 +26,12 @@ enum BencodePosition {
 }
 
 pub struct StreamingParser<T> {
-    priv reader: T,
-    priv pos: u32,
-    priv decoded: u32,
-    priv end: bool,
-    priv curr: Option<u8>,
-    priv stack: Vec<BencodePosition>,
+    reader: T,
+    pos: u32,
+    decoded: u32,
+    end: bool,
+    curr: Option<u8>,
+    stack: Vec<BencodePosition>,
 }
 
 macro_rules! expect(($ch:pat, $ex:expr) => (
