@@ -37,7 +37,7 @@
 
   fn main() {
       let s = MyStruct { string: ~"Hello bencode", id: 1 };
-      let result: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+      let result: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
   }
   ```
 
@@ -62,7 +62,7 @@
           let mut m = TreeMap::new();
           m.insert(Key::from_str("a"), self.a.to_bencode());
           m.insert(Key::from_str("b"), self.b.to_bencode());
-          m.insert(Key::from_str("c"), bencode::ByteString(self.c.clone()));
+          m.insert(Key::from_str("c"), bencode::ByteString(Vec::from_slice(self.c.as_slice())));
           bencode::Dict(m)
       }
   }
@@ -70,7 +70,7 @@
   fn main() {
       let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
       let bencode: bencode::Bencode = s.to_bencode();
-      let result: ~[u8] = bencode.to_bytes().unwrap();
+      let result: Vec<u8> = bencode.to_bytes().unwrap();
   }
 
   ```
@@ -96,9 +96,9 @@
 
   fn main() {
       let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
-      let enc: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+      let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
-      let bencode: bencode::Bencode = bencode::from_owned(enc).unwrap();
+      let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
       let mut decoder = Decoder::new(&bencode);
       let result: MyStruct = Decodable::decode(&mut decoder).unwrap();
       assert!(s == result)
@@ -146,9 +146,9 @@
 
   fn main() {
       let s = MyStruct{ a: 5 };
-      let enc: ~[u8] = s.to_bencode().to_bytes().unwrap();
+      let enc: Vec<u8>  = s.to_bencode().to_bytes().unwrap();
 
-      let bencode: bencode::Bencode = bencode::from_owned(enc).unwrap();
+      let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
       let result: MyStruct = FromBencode::from_bencode(&bencode).unwrap();
       assert!(s == result)
   }
@@ -175,7 +175,7 @@
 
   fn main() {
       let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
-      let enc: ~[u8] = Encoder::buffer_encode(&s).unwrap();
+      let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let mut streaming = StreamingParser::new(enc.move_iter());
       for event in streaming {
@@ -216,7 +216,7 @@ pub mod streaming;
 pub enum Bencode {
     Empty,
     Number(i64),
-    ByteString(~[u8]),
+    ByteString(Vec<u8>),
     List(List),
     Dict(Dict),
 }
@@ -246,9 +246,9 @@ impl fmt::Show for Bencode {
 }
 
 #[deriving(Eq, Clone, TotalOrd, TotalEq, Ord, Show, Hash)]
-pub struct Key(~[u8]);
+pub struct Key(Vec<u8>);
 
-pub type List = ~[Bencode];
+pub type List = Vec<Bencode>;
 pub type Dict = TreeMap<Key, Bencode>;
 
 impl Bencode {
@@ -257,7 +257,7 @@ impl Bencode {
         self.encode(&mut encoder)
     }
 
-    pub fn to_bytes(&self) -> io::IoResult<~[u8]> {
+    pub fn to_bytes(&self) -> io::IoResult<Vec<u8>> {
         let mut writer = io::MemWriter::new();
         match self.to_writer(&mut writer) {
             Ok(_) => Ok(writer.unwrap()),
@@ -268,7 +268,7 @@ impl Bencode {
 
 impl Key {
     pub fn from_str(s: &'static str) -> Key {
-        Key(s.as_bytes().to_owned())
+        Key(Vec::from_slice(s.as_bytes()))
     }
 }
 
@@ -277,7 +277,7 @@ impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
         match self {
             &Empty => Ok(()),
             &Number(v) => e.emit_i64(v),
-            &ByteString(ref v) => e.emit_str(unsafe { raw::from_utf8(*v) }),
+            &ByteString(ref v) => e.emit_str(unsafe { raw::from_utf8(v.as_slice()) }),
             &List(ref v) => v.encode(e),
             &Dict(ref v) => v.encode(e)
         }
@@ -287,7 +287,7 @@ impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
 impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Key {
     fn encode(&self, e: &mut S) -> Result<(), E> {
         let &Key(ref key) = self;
-        e.emit_str(unsafe { raw::from_utf8(*key) })
+        e.emit_str(unsafe { raw::from_utf8(key.as_slice()) })
     }
 }
 
@@ -301,7 +301,7 @@ pub trait FromBencode {
 
 impl ToBencode for () {
     fn to_bencode(&self) -> Bencode {
-        ByteString(~[])
+        ByteString(Vec::new())
     }
 }
 
@@ -324,7 +324,7 @@ impl<T: ToBencode> ToBencode for Option<T> {
     fn to_bencode(&self) -> Bencode {
         match self {
             &Some(ref v) => v.to_bencode(),
-            &None => ByteString((~"nil").into_bytes())
+            &None => ByteString(Vec::from_slice(bytes!("nil")))
         }
     }
 }
@@ -391,7 +391,7 @@ derive_num_from_bencode!(u64)
 
 impl ToBencode for f32 {
     fn to_bencode(&self) -> Bencode {
-        ByteString(std::f32::to_str_hex(*self).as_bytes().into_owned())
+        ByteString(Vec::from_slice(std::f32::to_str_hex(*self).as_bytes()))
     }
 }
 
@@ -411,7 +411,7 @@ impl FromBencode for f32 {
 
 impl ToBencode for f64 {
     fn to_bencode(&self) -> Bencode {
-        ByteString(std::f64::to_str_hex(*self).as_bytes().into_owned())
+        ByteString(Vec::from_slice(std::f64::to_str_hex(*self).as_bytes()))
     }
 }
 
@@ -432,9 +432,9 @@ impl FromBencode for f64 {
 impl ToBencode for bool {
     fn to_bencode(&self) -> Bencode {
         if *self {
-            ByteString(bytes!("true").to_owned())
+            ByteString(Vec::from_slice(bytes!("true")))
         } else {
-            ByteString(bytes!("false").to_owned())
+            ByteString(Vec::from_slice(bytes!("false")))
         }
     }
 }
@@ -458,7 +458,7 @@ impl FromBencode for bool {
 
 impl ToBencode for char {
     fn to_bencode(&self) -> Bencode {
-        ByteString(self.to_str().into_bytes())
+        ByteString(Vec::from_slice(self.to_str().as_bytes()))
     }
 }
 
@@ -476,27 +476,27 @@ impl FromBencode for char {
 }
 
 impl ToBencode for ~str {
-    fn to_bencode(&self) -> Bencode { ByteString(self.clone().into_bytes()) }
+    fn to_bencode(&self) -> Bencode { ByteString(Vec::from_slice(self.as_bytes())) }
 }
 
 impl FromBencode for ~str {
     fn from_bencode(bencode: &Bencode) -> Option<~str> {
         match bencode {
-            &ByteString(ref v) => std::str::from_utf8(*v).map(|s| s.to_owned()),
+            &ByteString(ref v) => std::str::from_utf8(v.as_slice()).map(|s| s.to_owned()),
             _ => None
         }
     }
 }
 
-impl<T: ToBencode> ToBencode for ~[T] {
+impl<T: ToBencode> ToBencode for Vec<T> {
     fn to_bencode(&self) -> Bencode { List(self.iter().map(|e| e.to_bencode()).collect()) }
 }
 
-impl<T: FromBencode> FromBencode for ~[T] {
-    fn from_bencode(bencode: &Bencode) -> Option<~[T]> {
+impl<T: FromBencode> FromBencode for Vec<T> {
+    fn from_bencode(bencode: &Bencode) -> Option<Vec<T>> {
         match bencode {
             &List(ref es) => {
-                let mut list = ~[];
+                let mut list = Vec::new();
                 for e in es.iter() {
                     match FromBencode::from_bencode(e) {
                         Some(v) => list.push(v),
@@ -514,7 +514,7 @@ macro_rules! map_to_bencode {
     ($m:expr) => {{
         let mut m = TreeMap::new();
         for (key, value) in $m.iter() {
-            m.insert(Key(key.as_bytes().to_owned()), value.to_bencode());
+            m.insert(Key(Vec::from_slice(key.as_bytes())), value.to_bencode());
         }
         Dict(m)
     }}
@@ -570,10 +570,10 @@ impl<T: FromBencode> FromBencode for HashMap<~str, T> {
 }
 
 pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
-    from_owned(buf.to_owned())
+    from_vec(Vec::from_slice(buf))
 }
 
-pub fn from_owned(buf: ~[u8]) -> Result<Bencode, Error> {
+pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
     from_iter(buf.move_iter())
 }
 
@@ -602,7 +602,7 @@ pub struct Encoder<'a> {
     keys: Vec<Key>,
     error: io::IoResult<()>,
     is_none: bool,
-    stack: Vec<TreeMap<Key, ~[u8]>>,
+    stack: Vec<TreeMap<Key, Vec<u8>>>,
 }
 
 impl<'a> Encoder<'a> {
@@ -618,7 +618,7 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    pub fn buffer_encode<T: Encodable<Encoder<'a>, IoError>>(val: &T) -> EncoderResult<~[u8]> {
+    pub fn buffer_encode<T: Encodable<Encoder<'a>, IoError>>(val: &T) -> EncoderResult<Vec<u8>> {
         let mut writer = io::MemWriter::new();
         {
             let mut encoder = Encoder::new(&mut writer);
@@ -638,7 +638,7 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn encode_dict(&mut self, dict: &TreeMap<Key, ~[u8]>) -> EncoderResult<()> {
+    fn encode_dict(&mut self, dict: &TreeMap<Key, Vec<u8>>) -> EncoderResult<()> {
         try!(write!(self.get_writer(), "d"));
         for (key, value) in dict.iter() {
             try!(key.encode(self));
@@ -711,7 +711,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
         if self.expect_key {
-            self.keys.push(Key(v.as_bytes().to_owned()));
+            self.keys.push(Key(Vec::from_slice(v.as_bytes())));
             Ok(())
         } else {
             try!(write!(self.get_writer(), "{}:", v.len()));
@@ -756,7 +756,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         let data = self.writers.pop().unwrap();
         let dict = self.stack.mut_last().unwrap();
         if !self.is_none {
-            dict.insert(Key(f_name.as_bytes().to_owned()), data.unwrap());
+            dict.insert(Key(Vec::from_slice(f_name.as_bytes())), data.unwrap());
         }
         self.is_none = false;
         Ok(())
@@ -886,7 +886,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
 
     fn parse_list(&mut self, mut current: Option<BencodeEvent>) -> Result<Bencode, Error> {
         self.depth += 1;
-        let mut list = ~[];
+        let mut list = Vec::new();
         loop {
             current = self.reader.next();
             match current {
@@ -1053,7 +1053,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     fn read_str(&mut self) -> DecoderResult<~str> {
         if self.expect_key {
             let Key(b) = self.keys.pop().unwrap();
-            match str::from_utf8_owned(b) {
+            match str::from_utf8_owned(b.as_slice().to_owned()) {
                 Some(s) => Ok(s),
                 None => self.error(~"error decoding key as utf-8")
             }
@@ -1095,7 +1095,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             Some(v) => {
                 match *v {
                     &Dict(ref m) => {
-                        match m.find(&Key(f_name.as_bytes().to_owned())) {
+                        match m.find(&Key(Vec::from_slice(f_name.as_bytes()))) {
                             Some(v) => v,
                             None => &EMPTY
                         }
@@ -1148,7 +1148,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         dec_expect_value!();
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
-                for v in list.rev_iter() {
+                for v in list.as_slice().rev_iter() {
                     self.stack.push(v);
                 }
                 list.len()
@@ -1212,11 +1212,11 @@ mod tests {
             Ok(e) => e,
             Err(err) => fail!("Unexpected failure: {}", err)
         };
-        assert_eq!($expected, encoded);
+        assert_eq!($expected.as_slice(), encoded.as_slice());
     }))
 
     macro_rules! assert_decoding(($enc:expr, $value:expr) => ({
-        let bencode = super::from_owned($enc).unwrap();
+        let bencode = super::from_vec($enc).unwrap();
         let mut decoder = Decoder::new(&bencode);
         let result = Decodable::decode(&mut decoder);
         assert_eq!(Ok($value), result);
@@ -1245,7 +1245,7 @@ mod tests {
             Ok(e) => e,
             Err(err) => fail!("Unexpected failure: {}", err)
         };
-        let bencode = super::from_owned(encoded).unwrap();
+        let bencode = super::from_vec(encoded).unwrap();
         let mut decoder = Decoder::new(&bencode);
         let result = Decodable::decode(&mut decoder);
         assert_eq!(Ok(value), result);
@@ -1269,8 +1269,8 @@ mod tests {
         gen_identity_test!($name_ident, $($val),+)
     })
 
-    fn bytes(s: &str) -> ~[u8] {
-        s.as_bytes().to_owned()
+    fn bytes(s: &str) -> Vec<u8> {
+        Vec::from_slice(s.as_bytes())
     }
 
     gen_complete_test!(encodes_unit,
@@ -1291,7 +1291,7 @@ mod tests {
                        identity_option_some,
                        Some(1) -> bytes("i1e"),
                        Some(~"rust") -> bytes("4:rust"),
-                       Some(~[(), ()]) -> bytes("l0:0:e"))
+                       Some(vec![(), ()]) -> bytes("l0:0:e"))
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
@@ -1554,20 +1554,20 @@ mod tests {
                        tobencode_empty_vec,
                        identity_empty_vec,
                        {
-                           let empty: ~[u8] = ~[];
+                           let empty: Vec<u8> = Vec::new();
                            empty
                        } -> bytes("le"))
 
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       ~[0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
-                       ~[~"foo", ~"b"] -> bytes("l3:foo1:be"))
+                       vec![0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
+                       vec![~"foo", ~"b"] -> bytes("l3:foo1:be"))
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       ~[~[1], ~[2, 3], ~[]] -> bytes("lli1eeli2ei3eelee"))
+                       vec![vec![1], vec![2, 3], vec![]] -> bytes("lli1eeli2ei3eelee"))
 
     #[deriving(Eq, Show, Encodable, Decodable)]
     struct SimpleStruct {
@@ -1732,7 +1732,7 @@ mod tests {
                                   }
                               } -> bytes("d1:ad1:bi10e1:cl4:true3:nilee1:bi99ee"))
 
-    fn try_bencode(bencode: Bencode) -> ~[u8] {
+    fn try_bencode(bencode: Bencode) -> Vec<u8> {
         match bencode.to_bytes() {
             Ok(v) => v,
             Err(err) => fail!("Unexpected error: {}", err)
@@ -1741,31 +1741,31 @@ mod tests {
 
     #[test]
     fn encodes_empty_bytestring() {
-        assert_eq!(try_bencode(ByteString(~[])), bytes("0:"));
+        assert_eq!(try_bencode(ByteString(Vec::new())), bytes("0:"));
     }
 
     #[test]
     fn encodes_nonempty_bytestring() {
-        assert_eq!(try_bencode(ByteString((~"abc").into_bytes())), bytes("3:abc"));
-        assert_eq!(try_bencode(ByteString(~[0, 1, 2, 3])), bytes("4:") + ~[0u8, 1, 2, 3]);
+        assert_eq!(try_bencode(ByteString(Vec::from_slice(bytes!("abc")))), bytes("3:abc"));
+        assert_eq!(try_bencode(ByteString(vec![0, 1, 2, 3])), bytes("4:").append([0u8, 1, 2, 3]));
     }
 
     #[test]
     fn encodes_empty_list() {
-        assert_eq!(try_bencode(List(~[])), bytes("le"));
+        assert_eq!(try_bencode(List(Vec::new())), bytes("le"));
     }
 
     #[test]
     fn encodes_nonempty_list() {
-        assert_eq!(try_bencode(List(~[Number(1)])), bytes("li1ee"));
-        assert_eq!(try_bencode(List(~[ByteString((~"foobar").into_bytes()),
+        assert_eq!(try_bencode(List(vec![Number(1)])), bytes("li1ee"));
+        assert_eq!(try_bencode(List(vec![ByteString(Vec::from_slice("foobar".as_bytes())),
                           Number(-1)])), bytes("l6:foobari-1ee"));
     }
 
     #[test]
     fn encodes_nested_list() {
-        assert_eq!(try_bencode(List(~[List(~[])])), bytes("llee"));
-        let list = List(~[Number(1988), List(~[Number(2014)])]);
+        assert_eq!(try_bencode(List(vec![List(vec![])])), bytes("llee"));
+        let list = List(vec![Number(1988), List(vec![Number(2014)])]);
         assert_eq!(try_bencode(list), bytes("li1988eli2014eee"));
     }
 
@@ -1777,9 +1777,9 @@ mod tests {
     #[test]
     fn encodes_dict_with_items() {
         let mut m = TreeMap::new();
-        m.insert(Key((~"k1").into_bytes()), Number(1));
+        m.insert(Key::from_str("k1"), Number(1));
         assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1ee"));
-        m.insert(Key((~"k2").into_bytes()), ByteString(~[0, 0]));
+        m.insert(Key::from_str("k2"), ByteString(vec![0, 0]));
         assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1e2:k22:\0\0e"));
     }
 
@@ -1787,17 +1787,17 @@ mod tests {
     fn encodes_nested_dict() {
         let mut outer = TreeMap::new();
         let mut inner = TreeMap::new();
-        inner.insert(Key((~"val").into_bytes()), ByteString(~[68, 0, 90]));
-        outer.insert(Key((~"inner").into_bytes()), Dict(inner));
+        inner.insert(Key::from_str("val"), ByteString(vec![68, 0, 90]));
+        outer.insert(Key::from_str("inner"), Dict(inner));
         assert_eq!(try_bencode(Dict(outer)), bytes("d5:innerd3:val3:D\0Zee"));
     }
 
     #[test]
     fn encodes_dict_fields_in_sorted_order() {
         let mut m = TreeMap::new();
-        m.insert(Key((~"z").into_bytes()), Number(1));
-        m.insert(Key((~"abd").into_bytes()), Number(3));
-        m.insert(Key((~"abc").into_bytes()), Number(2));
+        m.insert(Key::from_str("z"), Number(1));
+        m.insert(Key::from_str("abd"), Number(3));
+        m.insert(Key::from_str("abc"), Number(2));
         assert_eq!(try_bencode(Dict(m)), bytes("d3:abci2e3:abdi3e1:zi1ee"));
     }
 
@@ -1824,18 +1824,18 @@ mod tests {
 
     #[test]
     fn decodes_empty_list() {
-        assert_decoded_eq([ListStart, ListEnd], Ok(List(~[])));
+        assert_decoded_eq([ListStart, ListEnd], Ok(List(vec![])));
     }
 
     #[test]
     fn decodes_list_with_elements() {
         assert_decoded_eq([ListStart,
                            NumberValue(1),
-                           ListEnd], Ok(List(~[Number(1)])));
+                           ListEnd], Ok(List(vec![Number(1)])));
         assert_decoded_eq([ListStart,
                            ByteStringValue(bytes("str")),
                            NumberValue(11),
-                           ListEnd], Ok(List(~[ByteString(bytes("str")),
+                           ListEnd], Ok(List(vec![ByteString(bytes("str")),
                                                Number(11)])));
     }
 
@@ -1847,7 +1847,7 @@ mod tests {
                            ListEnd,
                            ByteStringValue(bytes("rust")),
                            ListEnd],
-                           Ok(List(~[List(~[Number(13)]),
+                           Ok(List(vec![List(vec![Number(13)]),
                                      ByteString(bytes("rust"))])));
     }
 
@@ -1859,7 +1859,7 @@ mod tests {
     #[test]
     fn decodes_dict_with_value() {
         let mut map = TreeMap::new();
-        map.insert(Key(bytes("foo")), ByteString(bytes("rust")));
+        map.insert(Key::from_str("foo"), ByteString(bytes("rust")));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("foo")),
                            ByteStringValue(bytes("rust")),
@@ -1869,9 +1869,9 @@ mod tests {
     #[test]
     fn decodes_dict_with_values() {
         let mut map = TreeMap::new();
-        map.insert(Key(bytes("num")), Number(9));
-        map.insert(Key(bytes("str")), ByteString(bytes("abc")));
-        map.insert(Key(bytes("list")), List(~[Number(99)]));
+        map.insert(Key::from_str("num"), Number(9));
+        map.insert(Key::from_str("str"), ByteString(bytes("abc")));
+        map.insert(Key::from_str("list"), List(vec![Number(99)]));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("num")),
                            NumberValue(9),
@@ -1887,10 +1887,10 @@ mod tests {
     #[test]
     fn decodes_nested_dict() {
         let mut inner = TreeMap::new();
-        inner.insert(Key(bytes("inner")), Number(2));
+        inner.insert(Key::from_str("inner"), Number(2));
         let mut outer = TreeMap::new();
-        outer.insert(Key(bytes("dict")), Dict(inner));
-        outer.insert(Key(bytes("outer")), Number(1));
+        outer.insert(Key::from_str("dict"), Dict(inner));
+        outer.insert(Key::from_str("outer"), Number(1));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("outer")),
                            NumberValue(1),
@@ -1925,10 +1925,9 @@ mod tests {
 mod bench {
     extern crate test;
 
-    use self::test::BenchHarness;
+    use self::test::Bencher;
 
     use std::io;
-    use std::slice;
 
     use serialize::{Encodable, Decodable};
 
@@ -1936,8 +1935,8 @@ mod bench {
     use super::{Encoder, Decoder, Parser, DecoderResult};
 
     #[bench]
-    fn encode_large_vec_of_uint(bh: &mut BenchHarness) {
-        let v = slice::from_fn(100, |n| n);
+    fn encode_large_vec_of_uint(bh: &mut Bencher) {
+        let v = Vec::from_fn(100, |n| n);
         bh.iter(|| {
             let mut w = io::MemWriter::with_capacity(v.len() * 10);
             {
@@ -1951,8 +1950,8 @@ mod bench {
 
 
     #[bench]
-    fn decode_large_vec_of_uint(bh: &mut BenchHarness) {
-        let v = slice::from_fn(100, |n| n);
+    fn decode_large_vec_of_uint(bh: &mut Bencher) {
+        let v = Vec::from_fn(100, |n| n);
         let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().move_iter());

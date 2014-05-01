@@ -1,13 +1,11 @@
-use std::slice;
-
 #[deriving(Show, Eq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
-    ByteStringValue(~[u8]),
+    ByteStringValue(Vec<u8>),
     ListStart,
     ListEnd,
     DictStart,
-    DictKey(~[u8]),
+    DictKey(Vec<u8>),
     DictEnd,
     ParseError(Error),
 }
@@ -66,8 +64,8 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         self.end = self.curr.is_none();
     }
 
-    fn next_bytes(&mut self, len: uint) -> Result<~[u8], Error> {
-        let mut bytes = slice::with_capacity(len);
+    fn next_bytes(&mut self, len: uint) -> Result<Vec<u8>, Error> {
+        let mut bytes = Vec::with_capacity(len);
         for _ in range(0, len) {
             match self.curr {
                 Some(x) =>  bytes.push(x),
@@ -142,7 +140,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     }
 
     #[inline(always)]
-    fn parse_bytestring(&mut self) -> Result<~[u8], Error> {
+    fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
         let len = try!(self.parse_number_unsigned());
         expect!(':', ~":");
         let bytes = try!(self.next_bytes(len as uint));
@@ -261,8 +259,8 @@ mod test {
                     ListEnd, DictStart, DictKey, DictEnd, ParseError};
     use super::alphanum_to_str;
 
-    fn bytes(s: &str) -> ~[u8] {
-        s.as_bytes().to_owned()
+    fn bytes(s: &str) -> Vec<u8> {
+        Vec::from_slice(s.as_bytes())
     }
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
@@ -335,7 +333,7 @@ mod test {
 
     #[test]
     fn parses_empty_bytestring() {
-        assert_stream_eq("0:", [ByteStringValue(~[])]);
+        assert_stream_eq("0:", [ByteStringValue(Vec::new())]);
     }
 
     #[test]
@@ -346,7 +344,7 @@ mod test {
     #[test]
     fn parses_long_bytestring() {
         let long = "baz".repeat(10);
-        assert_stream_eq(format!("{}:{}", long.len(), long), [ByteStringValue(long.as_bytes().to_owned())]);
+        assert_stream_eq(format!("{}:{}", long.len(), long), [ByteStringValue(bytes(long))]);
     }
 
     #[test]

@@ -33,3 +33,5 @@ doctest: lib
 
 docs:
 	$(RUSTDOC) src/bencode.rs
+
+.PHONY: lib clean test libtest bench doctest docs
