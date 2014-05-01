@@ -19,7 +19,7 @@ pub struct Error {
 }
 
 #[deriving(Show, Eq, Clone)]
-enum BencodePosition {
+pub enum BencodePosition {
     ListPosition,
     KeyPosition,
     ValuePosition
