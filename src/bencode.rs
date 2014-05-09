@@ -36,7 +36,7 @@
   }
 
   fn main() {
-      let s = MyStruct { string: ~"Hello bencode", id: 1 };
+      let s = MyStruct { string: "Hello bencode".to_owned(), id: 1 };
       let result: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
   }
   ```
@@ -68,7 +68,7 @@
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
       let bencode: bencode::Bencode = s.to_bencode();
       let result: Vec<u8> = bencode.to_bytes().unwrap();
   }
@@ -95,7 +95,7 @@
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
@@ -174,7 +174,7 @@
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: ~"foo", c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let mut streaming = StreamingParser::new(enc.move_iter());
@@ -927,7 +927,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
 
 macro_rules! dec_expect_value(() => {
     if self.expect_key {
-        return Err(Message(~"Only 'string' map keys allowed"))
+        return Err(Message("Only 'string' map keys allowed".to_owned()))
     }
 })
 
@@ -1055,7 +1055,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             let Key(b) = self.keys.pop().unwrap();
             match str::from_utf8_owned(b.as_slice().to_owned()) {
                 Some(s) => Ok(s),
-                None => self.error(~"error decoding key as utf-8")
+                None => self.error("error decoding key as utf-8".to_owned())
             }
         } else {
             self.try_read("str")
@@ -1103,7 +1103,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                     _ => return Err(Expecting("Dict", v.to_str()))
                 }
             }
-            None => return Err(Expecting("Dict", ~"None"))
+            None => return Err(Expecting("Dict", "None".to_owned()))
         };
         self.stack.push(val);
         f(self)
@@ -1140,7 +1140,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 self.stack.push(v);
                 f(self, true)
             }
-            None => return Err(Expecting("Bencode", ~"None"))
+            None => return Err(Expecting("Bencode", "None".to_owned()))
         }
     }
 
@@ -1148,7 +1148,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         dec_expect_value!();
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
-                for v in list.as_slice().rev_iter() {
+                for v in list.as_slice().iter().rev() {
                     self.stack.push(v);
                 }
                 list.len()
@@ -1290,14 +1290,14 @@ mod tests {
                        tobencode_option_some,
                        identity_option_some,
                        Some(1) -> bytes("i1e"),
-                       Some(~"rust") -> bytes("4:rust"),
+                       Some("rust".to_owned()) -> bytes("4:rust"),
                        Some(vec![(), ()]) -> bytes("l0:0:e"))
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
                        Some(Some(1)) -> bytes("i1e"),
-                       Some(Some(~"rust")) -> bytes("4:rust"))
+                       Some(Some("rust".to_owned())) -> bytes("4:rust"))
 
     #[test]
     fn option_is_none_if_any_nested_option_is_none() {
@@ -1535,20 +1535,20 @@ mod tests {
     gen_complete_test!(encode_empty_str,
                       tobencode_empty_str,
                       identity_empty_str,
-                      ~"" -> bytes("0:"))
+                      "".to_owned() -> bytes("0:"))
 
     gen_complete_test!(encode_str,
                       tobencode_str,
                       identity_str,
-                      ~"a" -> bytes("1:a"),
-                      ~"foo" -> bytes("3:foo"),
-                      ~"This is nice!?#$%" -> bytes("17:This is nice!?#$%"))
+                      "a".to_owned() -> bytes("1:a"),
+                      "foo".to_owned() -> bytes("3:foo"),
+                      "This is nice!?#$%".to_owned() -> bytes("17:This is nice!?#$%"))
 
     gen_complete_test!(encode_str_with_multibyte_chars,
                       tobencode_str_with_multibyte_chars,
                       identity_str_with_multibyte_chars,
-                      ~"Löwe 老虎 Léopard" -> bytes("21:Löwe 老虎 Léopard"),
-                      ~"いろはにほへとちりぬるを" -> bytes("36:いろはにほへとちりぬるを"))
+                      "Löwe 老虎 Léopard".to_owned() -> bytes("21:Löwe 老虎 Léopard"),
+                      "いろはにほへとちりぬるを".to_owned() -> bytes("36:いろはにほへとちりぬるを"))
 
     gen_complete_test!(encodes_empty_vec,
                        tobencode_empty_vec,
@@ -1562,7 +1562,7 @@ mod tests {
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
                        vec![0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
-                       vec![~"foo", ~"b"] -> bytes("l3:foo1:be"))
+                       vec!["foo".to_owned(), "b".to_owned()] -> bytes("l3:foo1:be"))
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
@@ -1591,7 +1591,7 @@ mod tests {
     gen_encode_identity_test!(encodes_struct,
                               identity_struct,
                               SimpleStruct {
-                                  b: ~[~"foo", ~"baar"],
+                                  b: ~["foo".to_owned(), "baar".to_owned()],
                                   a: 123
                               } -> bytes("d1:ai123e1:bl3:foo4:baaree"),
                               SimpleStruct {
@@ -1606,11 +1606,11 @@ mod tests {
                                   inner: ~[InnerStruct {
                                       field_one: (),
                                       list: ~[99, 5],
-                                      abc: ~"rust"
+                                      abc: "rust".to_owned()
                                   }, InnerStruct {
                                       field_one: (),
                                       list: ~[],
-                                      abc: ~""
+                                      abc: "".to_owned()
                                   }]
                               } -> bytes("d\
                                            5:inner\
@@ -1642,13 +1642,13 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       map!(HashMap, (~"a", 1)) -> bytes("d1:ai1ee"),
-                       map!(HashMap, (~"foo", ~"a"), (~"bar", ~"bb")) -> bytes("d3:bar2:bb3:foo1:ae"))
+                       map!(HashMap, ("a".to_owned(), 1)) -> bytes("d1:ai1ee"),
+                       map!(HashMap, ("foo".to_owned(), "a".to_owned()), ("bar".to_owned(), "bb".to_owned())) -> bytes("d3:bar2:bb3:foo1:ae"))
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       map!(HashMap, (~"a", map!(HashMap, (~"foo", 101), (~"bar", 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
+                       map!(HashMap, ("a".to_owned(), map!(HashMap, ("foo".to_owned(), 101), ("bar".to_owned(), 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Dict(map!(TreeMap, (Key(bytes("foo")), ByteString(bytes("bar")))));
@@ -1904,7 +1904,7 @@ mod tests {
 
     #[test]
     fn decode_error_on_parse_error() {
-        let err = Error{ pos: 1, msg: ~"error msg" };
+        let err = Error{ pos: 1, msg: "error msg".to_owned() };
         let perr = ParseError(err.clone());
         assert_decoded_eq([perr.clone()], Err(err.clone()));
         assert_decoded_eq([NumberValue(1), perr.clone()], Err(err.clone()));
