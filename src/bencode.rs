@@ -10,8 +10,6 @@
 #![license = "MIT/ASL2"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
-#![deny(warnings)]
-#![allow(deprecated_owned_vector)]
 #![feature(macro_rules)]
 
 /*!
@@ -31,12 +29,12 @@
 
   #[deriving(Encodable)]
   struct MyStruct {
-      string: ~str,
+      string: String,
       id: uint,
   }
 
   fn main() {
-      let s = MyStruct { string: "Hello bencode".to_owned(), id: 1 };
+      let s = MyStruct { string: "Hello bencode".to_string(), id: 1 };
       let result: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
   }
   ```
@@ -53,7 +51,7 @@
 
   struct MyStruct {
       a: int,
-      b: ~str,
+      b: String,
       c: ~[u8],
   }
 
@@ -68,7 +66,7 @@
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
       let bencode: bencode::Bencode = s.to_bencode();
       let result: Vec<u8> = bencode.to_bytes().unwrap();
   }
@@ -87,15 +85,15 @@
 
   use bencode::{Encoder, Decoder};
 
-  #[deriving(Encodable, Decodable, Eq)]
+  #[deriving(Encodable, Decodable, PartialEq)]
   struct MyStruct {
       a: int,
-      b: ~str,
+      b: String,
       c: ~[u8],
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
@@ -115,7 +113,7 @@
 
   use bencode::{FromBencode, ToBencode, Dict, Key};
 
-  #[deriving(Eq)]
+  #[deriving(PartialEq)]
   struct MyStruct {
       a: int
   }
@@ -166,15 +164,15 @@
 
   use bencode::Encoder;
 
-  #[deriving(Encodable, Decodable, Eq)]
+  #[deriving(Encodable, Decodable, PartialEq)]
   struct MyStruct {
       a: int,
-      b: ~str,
+      b: String,
       c: ~[u8],
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_owned(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let mut streaming = StreamingParser::new(enc.move_iter());
@@ -191,7 +189,6 @@
   ```
 */
 
-extern crate collections;
 extern crate serialize;
 
 use std::io;
@@ -203,8 +200,8 @@ use std::vec::Vec;
 
 use serialize::{Encodable};
 
-use collections::treemap::TreeMap;
-use collections::hashmap::HashMap;
+use std::collections::treemap::TreeMap;
+use std::collections::hashmap::HashMap;
 
 use streaming::{StreamingParser, Error};
 use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
@@ -212,7 +209,7 @@ use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
 
 pub mod streaming;
 
-#[deriving(Eq, Clone)]
+#[deriving(PartialEq, Clone)]
 pub enum Bencode {
     Empty,
     Number(i64),
@@ -225,27 +222,27 @@ impl fmt::Show for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &Empty => { Ok(()) }
-            &Number(v) => write!(fmt.buf, "{}", v),
-            &ByteString(ref v) => write!(fmt.buf, "s{}", v),
-            &List(ref v) => write!(fmt.buf, "{}", v),
+            &Number(v) => write!(fmt, "{}", v),
+            &ByteString(ref v) => write!(fmt, "s{}", v),
+            &List(ref v) => write!(fmt, "{}", v),
             &Dict(ref v) => {
-                try!(write!(fmt.buf, r"\{"));
+                try!(write!(fmt, r"\{"));
                 let mut first = true;
                 for (key, value) in v.iter() {
                     if first {
                         first = false;
                     } else {
-                        try!(write!(fmt.buf, ", "));
+                        try!(write!(fmt, ", "));
                     }
-                    try!(write!(fmt.buf, "{}: {}", *key, *value));
+                    try!(write!(fmt, "{}: {}", *key, *value));
                 }
-                write!(fmt.buf, r"\}")
+                write!(fmt, r"\}")
             }
         }
     }
 }
 
-#[deriving(Eq, Clone, TotalOrd, TotalEq, Ord, Show, Hash)]
+#[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Show, Hash)]
 pub struct Key(Vec<u8>);
 
 pub type List = Vec<Bencode>;
@@ -464,10 +461,10 @@ impl ToBencode for char {
 
 impl FromBencode for char {
     fn from_bencode(bencode: &Bencode) -> Option<char> {
-        let s: Option<~str> = FromBencode::from_bencode(bencode);
+        let s: Option<String> = FromBencode::from_bencode(bencode);
         s.and_then(|s| {
-            if s.char_len() == 1 {
-                Some(s.char_at(0))
+            if s.as_slice().char_len() == 1 {
+                Some(s.as_slice().char_at(0))
             } else {
                 None
             }
@@ -475,14 +472,14 @@ impl FromBencode for char {
     }
 }
 
-impl ToBencode for ~str {
+impl ToBencode for String {
     fn to_bencode(&self) -> Bencode { ByteString(Vec::from_slice(self.as_bytes())) }
 }
 
-impl FromBencode for ~str {
-    fn from_bencode(bencode: &Bencode) -> Option<~str> {
+impl FromBencode for String {
+    fn from_bencode(bencode: &Bencode) -> Option<String> {
         match bencode {
-            &ByteString(ref v) => std::str::from_utf8(v.as_slice()).map(|s| s.to_owned()),
+            &ByteString(ref v) => std::str::from_utf8(v.as_slice()).map(|s| s.to_string()),
             _ => None
         }
     }
@@ -530,7 +527,7 @@ macro_rules! map_from_bencode {
                         Some(k) => {
                             let val: Option<T> = FromBencode::from_bencode(value);
                             match val {
-                                Some(v) => m.insert(k.to_owned(), v),
+                                Some(v) => m.insert(k.to_string(), v),
                                 None => return None
                             }
                         }
@@ -545,26 +542,26 @@ macro_rules! map_from_bencode {
     }}
 }
 
-impl<T: ToBencode> ToBencode for TreeMap<~str, T> {
+impl<T: ToBencode> ToBencode for TreeMap<String, T> {
     fn to_bencode(&self) -> Bencode {
         map_to_bencode!(self)
     }
 }
 
-impl<T: FromBencode> FromBencode for TreeMap<~str, T> {
-    fn from_bencode(bencode: &Bencode) -> Option<TreeMap<~str, T>> {
+impl<T: FromBencode> FromBencode for TreeMap<String, T> {
+    fn from_bencode(bencode: &Bencode) -> Option<TreeMap<String, T>> {
         map_from_bencode!(TreeMap)
     }
 }
 
-impl<T: ToBencode> ToBencode for HashMap<~str, T> {
+impl<T: ToBencode> ToBencode for HashMap<String, T> {
     fn to_bencode(&self) -> Bencode {
         map_to_bencode!(self)
     }
 }
 
-impl<T: FromBencode> FromBencode for HashMap<~str, T> {
-    fn from_bencode(bencode: &Bencode) -> Option<HashMap<~str, T>> {
+impl<T: FromBencode> FromBencode for HashMap<String, T> {
+    fn from_bencode(bencode: &Bencode) -> Option<HashMap<String, T>> {
         map_from_bencode!(HashMap)
     }
 }
@@ -696,17 +693,17 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_f32(&mut self, v: f32) -> EncoderResult<()> {
         expect_value!();
-        self.emit_str(std::f32::to_str_hex(v))
+        self.emit_str(std::f32::to_str_hex(v).as_slice())
     }
 
     fn emit_f64(&mut self, v: f64) -> EncoderResult<()> {
         expect_value!();
-        self.emit_str(std::f64::to_str_hex(v))
+        self.emit_str(std::f64::to_str_hex(v).as_slice())
     }
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
         expect_value!();
-        self.emit_str(str::from_char(v))
+        self.emit_str(str::from_char(v).as_slice())
     }
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
@@ -927,16 +924,16 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
 
 macro_rules! dec_expect_value(() => {
     if self.expect_key {
-        return Err(Message("Only 'string' map keys allowed".to_owned()))
+        return Err(Message("Only 'string' map keys allowed".to_string()))
     }
 })
 
 static EMPTY: Bencode = Empty;
 
-#[deriving(Eq, Clone, Show)]
+#[deriving(Eq, PartialEq, Clone, Show)]
 pub enum DecoderError {
-    Message(~str),
-    Expecting(&'static str, ~str),
+    Message(String),
+    Expecting(&'static str, String),
     Unimplemented(&'static str),
 }
 
@@ -965,7 +962,7 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    fn error<T>(&self, msg: ~str) -> DecoderResult<T> {
+    fn error<T>(&self, msg: String) -> DecoderResult<T> {
         Err(Message(msg))
     }
 
@@ -1050,12 +1047,12 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         self.try_read("char")
     }
 
-    fn read_str(&mut self) -> DecoderResult<~str> {
+    fn read_str(&mut self) -> DecoderResult<String> {
         if self.expect_key {
             let Key(b) = self.keys.pop().unwrap();
-            match str::from_utf8_owned(b.as_slice().to_owned()) {
-                Some(s) => Ok(s),
-                None => self.error("error decoding key as utf-8".to_owned())
+            match str::from_utf8_owned(Vec::from_slice(b.as_slice())) {
+                Ok(s) => Ok(s),
+                Err(_) => self.error("error decoding key as utf-8".to_string())
             }
         } else {
             self.try_read("str")
@@ -1103,7 +1100,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                     _ => return Err(Expecting("Dict", v.to_str()))
                 }
             }
-            None => return Err(Expecting("Dict", "None".to_owned()))
+            None => return Err(Expecting("Dict", "None".to_string()))
         };
         self.stack.push(val);
         f(self)
@@ -1140,7 +1137,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 self.stack.push(v);
                 f(self, true)
             }
-            None => return Err(Expecting("Bencode", "None".to_owned()))
+            None => return Err(Expecting("Bencode", "None".to_string()))
         }
     }
 
@@ -1195,8 +1192,8 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
 #[cfg(test)]
 mod tests {
     use serialize::{Encodable, Decodable};
-    use collections::treemap::TreeMap;
-    use collections::hashmap::HashMap;
+    use std::collections::treemap::TreeMap;
+    use std::collections::hashmap::HashMap;
 
     use streaming::Error;
     use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
@@ -1290,14 +1287,14 @@ mod tests {
                        tobencode_option_some,
                        identity_option_some,
                        Some(1) -> bytes("i1e"),
-                       Some("rust".to_owned()) -> bytes("4:rust"),
+                       Some("rust".to_string()) -> bytes("4:rust"),
                        Some(vec![(), ()]) -> bytes("l0:0:e"))
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
                        Some(Some(1)) -> bytes("i1e"),
-                       Some(Some("rust".to_owned())) -> bytes("4:rust"))
+                       Some(Some("rust".to_string())) -> bytes("4:rust"))
 
     #[test]
     fn option_is_none_if_any_nested_option_is_none() {
@@ -1320,14 +1317,14 @@ mod tests {
                        identity_positive_int,
                        5i -> bytes("i5e"),
                        99i -> bytes("i99e"),
-                       ::std::int::MAX -> bytes(format!("i{}e", ::std::int::MAX)))
+                       ::std::int::MAX -> bytes(format!("i{}e", ::std::int::MAX).as_slice()))
 
     gen_complete_test!(encodes_negative_int,
                        tobencode_negative_int,
                        identity_negative_int,
                        -5i -> bytes("i-5e"),
                        -99i -> bytes("i-99e"),
-                       ::std::int::MIN -> bytes(format!("i{}e", ::std::int::MIN)))
+                       ::std::int::MIN -> bytes(format!("i{}e", ::std::int::MIN).as_slice()))
 
     gen_complete_test!(encodes_zero_i8,
                        tobencode_zero_i8,
@@ -1339,14 +1336,14 @@ mod tests {
                        identity_positive_i8,
                        5i8 -> bytes("i5e"),
                        99i8 -> bytes("i99e"),
-                       ::std::i8::MAX -> bytes(format!("i{}e", ::std::i8::MAX)))
+                       ::std::i8::MAX -> bytes(format!("i{}e", ::std::i8::MAX).as_slice()))
 
     gen_complete_test!(encodes_negative_i8,
                        tobencode_negative_i8,
                        identity_negative_i8,
                        -5i8 -> bytes("i-5e"),
                        -99i8 -> bytes("i-99e"),
-                       ::std::i8::MIN -> bytes(format!("i{}e", ::std::i8::MIN)))
+                       ::std::i8::MIN -> bytes(format!("i{}e", ::std::i8::MIN).as_slice()))
 
     gen_complete_test!(encodes_zero_i16,
                        tobencode_zero_i16,
@@ -1358,14 +1355,14 @@ mod tests {
                        identity_positive_i16,
                        5i16 -> bytes("i5e"),
                        99i16 -> bytes("i99e"),
-                       ::std::i16::MAX -> bytes(format!("i{}e", ::std::i16::MAX)))
+                       ::std::i16::MAX -> bytes(format!("i{}e", ::std::i16::MAX).as_slice()))
 
     gen_complete_test!(encodes_negative_i16,
                        tobencode_negative_i16,
                        identity_negative_i16,
                        -5i16 -> bytes("i-5e"),
                        -99i16 -> bytes("i-99e"),
-                       ::std::i16::MIN -> bytes(format!("i{}e", ::std::i16::MIN)))
+                       ::std::i16::MIN -> bytes(format!("i{}e", ::std::i16::MIN).as_slice()))
 
     gen_complete_test!(encodes_zero_i32,
                        tobencode_zero_i32,
@@ -1377,14 +1374,14 @@ mod tests {
                        identity_positive_i32,
                        5i32 -> bytes("i5e"),
                        99i32 -> bytes("i99e"),
-                       ::std::i32::MAX -> bytes(format!("i{}e", ::std::i32::MAX)))
+                       ::std::i32::MAX -> bytes(format!("i{}e", ::std::i32::MAX).as_slice()))
 
     gen_complete_test!(encodes_negative_i32,
                        tobencode_negative_i32,
                        identity_negative_i32,
                        -5i32 -> bytes("i-5e"),
                        -99i32 -> bytes("i-99e"),
-                       ::std::i32::MIN -> bytes(format!("i{}e", ::std::i32::MIN)))
+                       ::std::i32::MIN -> bytes(format!("i{}e", ::std::i32::MIN).as_slice()))
 
     gen_complete_test!(encodes_zero_i64,
                        tobencode_zero_i64,
@@ -1396,14 +1393,14 @@ mod tests {
                        identity_positive_i64,
                        5i64 -> bytes("i5e"),
                        99i64 -> bytes("i99e"),
-                       ::std::i64::MAX -> bytes(format!("i{}e", ::std::i64::MAX)))
+                       ::std::i64::MAX -> bytes(format!("i{}e", ::std::i64::MAX).as_slice()))
 
     gen_complete_test!(encodes_negative_i64,
                        tobencode_negative_i64,
                        identity_negative_i64,
                        -5i64 -> bytes("i-5e"),
                        -99i64 -> bytes("i-99e"),
-                       ::std::i64::MIN -> bytes(format!("i{}e", ::std::i64::MIN)))
+                       ::std::i64::MIN -> bytes(format!("i{}e", ::std::i64::MIN).as_slice()))
 
     gen_complete_test!(encodes_zero_uint,
                        tobencode_zero_uint,
@@ -1415,7 +1412,7 @@ mod tests {
                        identity_positive_uint,
                        5u -> bytes("i5e"),
                        99u -> bytes("i99e"),
-                       ::std::uint::MAX / 2 -> bytes(format!("i{}e", ::std::uint::MAX / 2)))
+                       ::std::uint::MAX / 2 -> bytes(format!("i{}e", ::std::uint::MAX / 2).as_slice()))
 
     gen_complete_test!(encodes_zero_u8,
                        tobencode_zero_u8,
@@ -1427,7 +1424,7 @@ mod tests {
                        identity_positive_u8,
                        5u8 -> bytes("i5e"),
                        99u8 -> bytes("i99e"),
-                       ::std::u8::MAX -> bytes(format!("i{}e", ::std::u8::MAX)))
+                       ::std::u8::MAX -> bytes(format!("i{}e", ::std::u8::MAX).as_slice()))
 
     gen_complete_test!(encodes_zero_u16,
                        tobencode_zero_u16,
@@ -1439,7 +1436,7 @@ mod tests {
                        identity_positive_u16,
                        5u16 -> bytes("i5e"),
                        99u16 -> bytes("i99e"),
-                       ::std::u16::MAX -> bytes(format!("i{}e", ::std::u16::MAX)))
+                       ::std::u16::MAX -> bytes(format!("i{}e", ::std::u16::MAX).as_slice()))
 
     gen_complete_test!(encodes_zero_u32,
                        tobencode_zero_u32,
@@ -1451,7 +1448,7 @@ mod tests {
                        identity_positive_u32,
                        5u32 -> bytes("i5e"),
                        99u32 -> bytes("i99e"),
-                       ::std::u32::MAX -> bytes(format!("i{}e", ::std::u32::MAX)))
+                       ::std::u32::MAX -> bytes(format!("i{}e", ::std::u32::MAX).as_slice()))
 
     gen_complete_test!(encodes_zero_u64,
                        tobencode_zero_u64,
@@ -1463,7 +1460,7 @@ mod tests {
                        identity_positive_u64,
                        5u64 -> bytes("i5e"),
                        99u64 -> bytes("i99e"),
-                       ::std::u64::MAX / 2 -> bytes(format!("i{}e", ::std::u64::MAX / 2)))
+                       ::std::u64::MAX / 2 -> bytes(format!("i{}e", ::std::u64::MAX / 2).as_slice()))
 
     gen_complete_test!(encodes_bool,
                        tobencode_bool,
@@ -1535,20 +1532,20 @@ mod tests {
     gen_complete_test!(encode_empty_str,
                       tobencode_empty_str,
                       identity_empty_str,
-                      "".to_owned() -> bytes("0:"))
+                      "".to_string() -> bytes("0:"))
 
     gen_complete_test!(encode_str,
                       tobencode_str,
                       identity_str,
-                      "a".to_owned() -> bytes("1:a"),
-                      "foo".to_owned() -> bytes("3:foo"),
-                      "This is nice!?#$%".to_owned() -> bytes("17:This is nice!?#$%"))
+                      "a".to_string() -> bytes("1:a"),
+                      "foo".to_string() -> bytes("3:foo"),
+                      "This is nice!?#$%".to_string() -> bytes("17:This is nice!?#$%"))
 
     gen_complete_test!(encode_str_with_multibyte_chars,
                       tobencode_str_with_multibyte_chars,
                       identity_str_with_multibyte_chars,
-                      "Löwe 老虎 Léopard".to_owned() -> bytes("21:Löwe 老虎 Léopard"),
-                      "いろはにほへとちりぬるを".to_owned() -> bytes("36:いろはにほへとちりぬるを"))
+                      "Löwe 老虎 Léopard".to_string() -> bytes("21:Löwe 老虎 Léopard"),
+                      "いろはにほへとちりぬるを".to_string() -> bytes("36:いろはにほへとちりぬるを"))
 
     gen_complete_test!(encodes_empty_vec,
                        tobencode_empty_vec,
@@ -1562,27 +1559,27 @@ mod tests {
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
                        vec![0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
-                       vec!["foo".to_owned(), "b".to_owned()] -> bytes("l3:foo1:be"))
+                       vec!["foo".to_string(), "b".to_string()] -> bytes("l3:foo1:be"))
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
                        vec![vec![1], vec![2, 3], vec![]] -> bytes("lli1eeli2ei3eelee"))
 
-    #[deriving(Eq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct SimpleStruct {
         a: uint,
-        b: ~[~str],
+        b: ~[String],
     }
 
-    #[deriving(Eq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct InnerStruct {
         field_one: (),
         list: ~[uint],
-        abc: ~str
+        abc: String
     }
 
-    #[deriving(Eq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct OuterStruct {
         inner: ~[InnerStruct],
         is_true: bool
@@ -1591,7 +1588,7 @@ mod tests {
     gen_encode_identity_test!(encodes_struct,
                               identity_struct,
                               SimpleStruct {
-                                  b: ~["foo".to_owned(), "baar".to_owned()],
+                                  b: ~["foo".to_string(), "baar".to_string()],
                                   a: 123
                               } -> bytes("d1:ai123e1:bl3:foo4:baaree"),
                               SimpleStruct {
@@ -1606,11 +1603,11 @@ mod tests {
                                   inner: ~[InnerStruct {
                                       field_one: (),
                                       list: ~[99, 5],
-                                      abc: "rust".to_owned()
+                                      abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
                                       list: ~[],
-                                      abc: "".to_owned()
+                                      abc: "".to_string()
                                   }]
                               } -> bytes("d\
                                            5:inner\
@@ -1642,18 +1639,18 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       map!(HashMap, ("a".to_owned(), 1)) -> bytes("d1:ai1ee"),
-                       map!(HashMap, ("foo".to_owned(), "a".to_owned()), ("bar".to_owned(), "bb".to_owned())) -> bytes("d3:bar2:bb3:foo1:ae"))
+                       map!(HashMap, ("a".to_string(), 1)) -> bytes("d1:ai1ee"),
+                       map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string())) -> bytes("d3:bar2:bb3:foo1:ae"))
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       map!(HashMap, ("a".to_owned(), map!(HashMap, ("foo".to_owned(), 101), ("bar".to_owned(), 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
+                       map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101), ("bar".to_string(), 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Dict(map!(TreeMap, (Key(bytes("foo")), ByteString(bytes("bar")))));
         let mut decoder = Decoder::new(&benc);
-        let res: DecoderResult<TreeMap<int, ~str>> = Decodable::decode(&mut decoder);
+        let res: DecoderResult<TreeMap<int, String>> = Decodable::decode(&mut decoder);
         assert!(res.is_err());
     }
 
@@ -1682,14 +1679,14 @@ mod tests {
         assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
-    #[deriving(Encodable, Decodable, Eq, Show, Clone)]
+    #[deriving(Encodable, Decodable, Eq, PartialEq, Show, Clone)]
     struct OptionalStruct {
         a: Option<int>,
         b: int,
         c: Option<~[Option<bool>]>,
     }
 
-    #[deriving(Encodable, Decodable, Eq, Show)]
+    #[deriving(Encodable, Decodable, Eq, PartialEq, Show)]
     struct OptionalStructOuter {
         a: Option<OptionalStruct>,
         b: Option<int>,
@@ -1904,7 +1901,7 @@ mod tests {
 
     #[test]
     fn decode_error_on_parse_error() {
-        let err = Error{ pos: 1, msg: "error msg".to_owned() };
+        let err = Error{ pos: 1, msg: "error msg".to_string() };
         let perr = ParseError(err.clone());
         assert_decoded_eq([perr.clone()], Err(err.clone()));
         assert_decoded_eq([NumberValue(1), perr.clone()], Err(err.clone()));

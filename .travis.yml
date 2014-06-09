@@ -2,11 +2,12 @@ env:
   global:
     - secure: Mxu4VkrIdLzF4k2GpgY/vqTV7leV9pY8nHo+AkYriwp6HS6A5aZ1TSgXX3AeefrL4uKpzcMcJsZ9ie6lvo9dRRgKk2W5IM1hHtHLDvGApEKt9p1qN+x4VtVC50OIjJ0OCEQ+Lz84SiBwFkPEjOCZ2KJ/vwpbNiWCseHQK2Uso/w=
 before_install:
-  - yes | sudo add-apt-repository ppa:hansjorg/rust
-  - sudo apt-get update
+  - curl -O http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
+  - tar xzf rust-nightly-x86_64-unknown-linux-gnu.tar.gz
 install:
-  - sudo apt-get install rust-nightly
+  - sudo ./rust-nightly-x86_64-unknown-linux-gnu/install.sh
 script:
+  - rustc --version
   - make
 after_script:
   - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh

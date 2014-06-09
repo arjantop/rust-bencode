@@ -1,4 +1,4 @@
-#[deriving(Show, Eq, Clone)]
+#[deriving(Show, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
     ByteStringValue(Vec<u8>),
@@ -10,13 +10,13 @@ pub enum BencodeEvent {
     ParseError(Error),
 }
 
-#[deriving(Show, Eq, Clone)]
+#[deriving(Show, Eq, PartialEq, Clone)]
 pub struct Error {
     pub pos: u32,
-    pub msg: ~str,
+    pub msg: String,
 }
 
-#[deriving(Show, Eq, Clone)]
+#[deriving(Show, Eq, PartialEq, Clone)]
 pub enum BencodePosition {
     ListPosition,
     KeyPosition,
@@ -41,7 +41,7 @@ macro_rules! expect(($ch:pat, $ex:expr) => (
 
 macro_rules! check_nesting(() => (
     if self.decoded > 0 && self.stack.len() == 0 {
-        return self.error_msg("Only one value allowed outside of containers".to_owned())
+        return self.error_msg("Only one value allowed outside of containers".to_string())
     }
 ))
 
@@ -84,16 +84,16 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         self.curr.map(|v| v as char)
     }
 
-    fn error<T>(&mut self, expected: ~str) -> Result<T, Error> {
+    fn error<T>(&mut self, expected: String) -> Result<T, Error> {
         let got = self.curr_char();
         let got_char = match got {
             Some(x) => alphanum_to_str(x),
-            None => "EOF".to_owned()
+            None => "EOF".to_string()
         };
         self.error_msg(format!("Expecting '{}' but got '{}'", expected, got_char))
     }
 
-    fn error_msg<T>(&mut self, msg: ~str) -> Result<T, Error> {
+    fn error_msg<T>(&mut self, msg: String) -> Result<T, Error> {
         Err(Error {
             pos: self.pos,
             msg: msg
@@ -110,7 +110,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
             _ => 1
         };
         let num = try!(self.parse_number_unsigned());
-        expect!('e', "e".to_owned());
+        expect!('e', "e".to_string());
         Ok(sign * num)
     }
 
@@ -128,7 +128,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
                     self.next_byte();
                 }
             }
-            _ => return self.error("0-9".to_owned())
+            _ => return self.error("0-9".to_string())
         };
         Ok(num)
     }
@@ -142,7 +142,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     #[inline(always)]
     fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
         let len = try!(self.parse_number_unsigned());
-        expect!(':', ":".to_owned());
+        expect!(':', ":".to_string());
         let bytes = try!(self.next_bytes(len as uint));
         Ok(bytes)
     }
@@ -155,7 +155,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
             Some(ValuePosition) => {
                 Ok(DictEnd)
             }
-            _ => return self.error_msg("Unmatched value ending".to_owned())
+            _ => return self.error_msg("Unmatched value ending".to_string())
         }
     }
 
@@ -169,7 +169,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
                 Ok(DictKey(res))
             }
             Some('e') => self.parse_end(),
-            _ => self.error("0-9 or e".to_owned())
+            _ => self.error("0-9 or e".to_string())
         }
     }
 
@@ -204,7 +204,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
                 Ok(DictStart)
             }
             Some('e') => self.parse_end(),
-            _ => self.error("i or 0-9 or l or d or e".to_owned())
+            _ => self.error("i or 0-9 or l or d or e".to_string())
         }
     }
 
@@ -242,7 +242,7 @@ impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
     }
 }
 
-fn alphanum_to_str(ch: char) -> ~str {
+fn alphanum_to_str(ch: char) -> String {
     if ch.is_alphanumeric() {
         ch.to_str()
     } else {
@@ -297,33 +297,33 @@ mod test {
     #[test]
     fn parses_positive_numbers() {
         assert_stream_eq("i5e", [NumberValue(5)]);
-        assert_stream_eq(format!("i{}e", ::std::i64::MAX), [NumberValue(::std::i64::MAX)]);
+        assert_stream_eq(format!("i{}e", ::std::i64::MAX).as_slice(), [NumberValue(::std::i64::MAX)]);
     }
 
     #[test]
     fn parses_negative_numbers() {
         assert_stream_eq("i-5e", [NumberValue(-5)]);
-        assert_stream_eq(format!("i{}e", ::std::i64::MIN), [NumberValue(::std::i64::MIN)]);
+        assert_stream_eq(format!("i{}e", ::std::i64::MIN).as_slice(), [NumberValue(::std::i64::MIN)]);
     }
 
     #[test]
     fn parse_error_on_number_without_ending() {
-        assert_stream_eq("i10", [ParseError(Error{ pos: 3, msg: "Expecting 'e' but got 'EOF'".to_owned() })]);
+        assert_stream_eq("i10", [ParseError(Error{ pos: 3, msg: "Expecting 'e' but got 'EOF'".to_string() })]);
     }
 
     #[test]
     fn parse_error_on_number_with_leading_zero() {
-        assert_stream_eq("i0215e", [ParseError(Error{ pos: 2, msg: "Expecting 'e' but got '2'".to_owned() })]);
+        assert_stream_eq("i0215e", [ParseError(Error{ pos: 2, msg: "Expecting 'e' but got '2'".to_string() })]);
     }
 
     #[test]
     fn parse_error_on_empty_number() {
-        assert_stream_eq("ie", [ParseError(Error{ pos: 1, msg: "Expecting '0-9' but got 'e'".to_owned() })]);
+        assert_stream_eq("ie", [ParseError(Error{ pos: 1, msg: "Expecting '0-9' but got 'e'".to_string() })]);
     }
 
     #[test]
     fn parse_error_on_more_than_one_value_outside_of_containers() {
-        let msg = "Only one value allowed outside of containers".to_owned();
+        let msg = "Only one value allowed outside of containers".to_string();
         assert_stream_eq("i1ei2e", [NumberValue(1), ParseError(Error{ pos: 3, msg: msg.clone() })]);
         assert_stream_eq("i10eli2ee", [NumberValue(10), ParseError(Error{ pos: 4, msg: msg.clone() })]);
         assert_stream_eq("1:ade", [ByteStringValue(bytes("a")), ParseError(Error{ pos: 3, msg: msg.clone() })]);
@@ -344,17 +344,17 @@ mod test {
     #[test]
     fn parses_long_bytestring() {
         let long = "baz".repeat(10);
-        assert_stream_eq(format!("{}:{}", long.len(), long), [ByteStringValue(bytes(long))]);
+        assert_stream_eq(format!("{}:{}", long.len(), long).as_slice(), [ByteStringValue(bytes(long.as_slice()))]);
     }
 
     #[test]
     fn parse_error_on_too_short_data() {
-        assert_stream_eq("5:abcd", [ParseError(Error { pos: 6, msg: "Expecting 5 bytes but only got 4".to_owned() })]);
+        assert_stream_eq("5:abcd", [ParseError(Error { pos: 6, msg: "Expecting 5 bytes but only got 4".to_string() })]);
     }
 
     #[test]
     fn parse_error_on_malformed_bytestring() {
-        assert_stream_eq("3abc", [ParseError(Error { pos: 1, msg: "Expecting ':' but got 'a'".to_owned() })]);
+        assert_stream_eq("3abc", [ParseError(Error { pos: 1, msg: "Expecting ':' but got 'a'".to_string() })]);
     }
 
     #[test]
@@ -453,18 +453,18 @@ mod test {
     fn parse_error_on_key_of_wrong_type() {
         assert_stream_eq("di2006ei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'i'".to_owned() })]);
+                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'i'".to_string() })]);
         assert_stream_eq("dleei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'l'".to_owned() })]);
+                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'l'".to_string() })]);
         assert_stream_eq("ddei1ee",
                          [DictStart,
-                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'd'".to_owned() })]);
+                          ParseError(Error{ pos: 1, msg: "Expecting '0-9 or e' but got 'd'".to_string() })]);
     }
 
     #[test]
     fn parse_error_on_unmatched_value_ending() {
-        let msg = "Unmatched value ending".to_owned();
+        let msg = "Unmatched value ending".to_string();
         assert_stream_eq("e", [ParseError(Error{ pos: 1, msg: msg.clone() })]);
         assert_stream_eq("lee", [ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
     }
