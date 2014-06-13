@@ -52,7 +52,7 @@
   struct MyStruct {
       a: int,
       b: String,
-      c: ~[u8],
+      c: Vec<u8>,
   }
 
   impl ToBencode for MyStruct {
@@ -66,7 +66,7 @@
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![1, 2, 3, 4] };
       let bencode: bencode::Bencode = s.to_bencode();
       let result: Vec<u8> = bencode.to_bytes().unwrap();
   }
@@ -89,11 +89,11 @@
   struct MyStruct {
       a: int,
       b: String,
-      c: ~[u8],
+      c: Vec<u8>,
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![1, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
@@ -168,11 +168,11 @@
   struct MyStruct {
       a: int,
       b: String,
-      c: ~[u8],
+      c: Vec<u8>,
   }
 
   fn main() {
-      let s = MyStruct{ a: 5, b: "foo".to_string(), c: ~[1, 2, 3, 4] };
+      let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![2, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
       let mut streaming = StreamingParser::new(enc.move_iter());
@@ -1569,44 +1569,44 @@ mod tests {
     #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct SimpleStruct {
         a: uint,
-        b: ~[String],
+        b: Vec<String>,
     }
 
     #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct InnerStruct {
         field_one: (),
-        list: ~[uint],
+        list: Vec<uint>,
         abc: String
     }
 
     #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct OuterStruct {
-        inner: ~[InnerStruct],
+        inner: Vec<InnerStruct>,
         is_true: bool
     }
 
     gen_encode_identity_test!(encodes_struct,
                               identity_struct,
                               SimpleStruct {
-                                  b: ~["foo".to_string(), "baar".to_string()],
+                                  b: vec!["foo".to_string(), "baar".to_string()],
                                   a: 123
                               } -> bytes("d1:ai123e1:bl3:foo4:baaree"),
                               SimpleStruct {
                                   a: 1234567890,
-                                  b: ~[]
+                                  b: vec![]
                               } -> bytes("d1:ai1234567890e1:blee"))
 
     gen_encode_identity_test!(encodes_nested_struct,
                               identity_nested_struct,
                               OuterStruct {
                                   is_true: true,
-                                  inner: ~[InnerStruct {
+                                  inner: vec![InnerStruct {
                                       field_one: (),
-                                      list: ~[99, 5],
+                                      list: vec![99, 5],
                                       abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
-                                      list: ~[],
+                                      list: vec![],
                                       abc: "".to_string()
                                   }]
                               } -> bytes("d\
@@ -1683,7 +1683,7 @@ mod tests {
     struct OptionalStruct {
         a: Option<int>,
         b: int,
-        c: Option<~[Option<bool>]>,
+        c: Option<Vec<Option<bool>>>,
     }
 
     #[deriving(Encodable, Decodable, Eq, PartialEq, Show)]
@@ -1721,7 +1721,7 @@ mod tests {
                                   let a = OptionalStruct {
                                       a: None,
                                       b: 10,
-                                      c: Some(~[Some(true), None])
+                                      c: Some(vec![Some(true), None])
                                   };
                                   OptionalStructOuter {
                                       a: Some(a),
@@ -1955,7 +1955,7 @@ mod bench {
             let mut parser = Parser::new(streaming_parser);
             let bencode = parser.parse().unwrap();
             let mut decoder = Decoder::new(&bencode);
-            let result: DecoderResult<~[uint]> = Decodable::decode(&mut decoder);
+            let result: DecoderResult<Vec<uint>> = Decodable::decode(&mut decoder);
             result
         });
         bh.bytes = b.len() as u64 * 4;
