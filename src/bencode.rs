@@ -226,7 +226,7 @@ impl fmt::Show for Bencode {
             &ByteString(ref v) => write!(fmt, "s{}", v),
             &List(ref v) => write!(fmt, "{}", v),
             &Dict(ref v) => {
-                try!(write!(fmt, r"\{"));
+                try!(write!(fmt, "{{"));
                 let mut first = true;
                 for (key, value) in v.iter() {
                     if first {
@@ -236,7 +236,7 @@ impl fmt::Show for Bencode {
                     }
                     try!(write!(fmt, "{}: {}", *key, *value));
                 }
-                write!(fmt, r"\}")
+                write!(fmt, "}}")
             }
         }
     }
