@@ -321,7 +321,7 @@ impl<T: ToBencode> ToBencode for Option<T> {
     fn to_bencode(&self) -> Bencode {
         match self {
             &Some(ref v) => v.to_bencode(),
-            &None => ByteString(Vec::from_slice(bytes!("nil")))
+            &None => ByteString(Vec::from_slice(b"nil"))
         }
     }
 }
@@ -330,7 +330,7 @@ impl<T: FromBencode> FromBencode for Option<T> {
     fn from_bencode(bencode: &Bencode) -> Option<Option<T>> {
         match bencode {
             &ByteString(ref v) => {
-                if v.as_slice() == bytes!("nil") {
+                if v.as_slice() == b"nil" {
                     return Some(None)
                 }
             }
@@ -429,9 +429,9 @@ impl FromBencode for f64 {
 impl ToBencode for bool {
     fn to_bencode(&self) -> Bencode {
         if *self {
-            ByteString(Vec::from_slice(bytes!("true")))
+            ByteString(Vec::from_slice(b"true"))
         } else {
-            ByteString(Vec::from_slice(bytes!("false")))
+            ByteString(Vec::from_slice(b"false"))
         }
     }
 }
@@ -440,9 +440,9 @@ impl FromBencode for bool {
     fn from_bencode(bencode: &Bencode) -> Option<bool> {
         match bencode {
             &ByteString(ref v) => {
-                if v.as_slice() == bytes!("true") {
+                if v.as_slice() == b"true" {
                     Some(true)
-                } else if v.as_slice() == bytes!("false") {
+                } else if v.as_slice() == b"false" {
                     Some(false)
                 } else {
                     None
@@ -1128,7 +1128,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         match self.stack.pop() {
             Some(&Empty) => f(self, false),
             Some(b@&ByteString(ref v)) => {
-                if v.as_slice() == bytes!("nil") {
+                if v.as_slice() == b"nil" {
                     f(self, false)
                 } else {
                     self.stack.push(b);
@@ -1745,7 +1745,7 @@ mod tests {
 
     #[test]
     fn encodes_nonempty_bytestring() {
-        assert_eq!(try_bencode(ByteString(Vec::from_slice(bytes!("abc")))), bytes("3:abc"));
+        assert_eq!(try_bencode(ByteString(Vec::from_slice(b"abc"))), bytes("3:abc"));
         assert_eq!(try_bencode(ByteString(vec![0, 1, 2, 3])), bytes("4:").append([0u8, 1, 2, 3]));
     }
 
