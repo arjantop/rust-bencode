@@ -616,10 +616,12 @@ impl<'a> Encoder<'a> {
     }
 
     pub fn buffer_encode<T: Encodable<Encoder<'a>, IoError>>(val: &T) -> EncoderResult<Vec<u8>> {
+        use std::mem::transmute;
         let mut writer = io::MemWriter::new();
-        {
+        // FIXME: same as json rust-lang/rust#14302
+        unsafe {
             let mut encoder = Encoder::new(&mut writer);
-            try!(val.encode(&mut encoder));
+            try!(val.encode(transmute(&mut encoder)));
             if encoder.error.is_err() {
                 return Err(encoder.error.unwrap_err())
             }
@@ -627,7 +629,7 @@ impl<'a> Encoder<'a> {
         Ok(writer.unwrap())
     }
 
-    fn get_writer(&'a mut self) -> &'a mut io::Writer {
+    fn get_writer<'a>(&'a mut self) -> &'a mut io::Writer {
         if self.writers.len() == 0 {
             &mut self.writer as &'a mut io::Writer
         } else {
