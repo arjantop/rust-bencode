@@ -1,0 +1,9 @@
+[package]
+
+name = "bencode"
+version = "0.1.0"
+authors = ["arjan.top@gmail.com"]
+
+[[lib]]
+
+name = "bencode"

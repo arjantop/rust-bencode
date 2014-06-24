@@ -1,7 +1,7 @@
 RUSTC = rustc
 RUSTDOC = rustdoc
 RUSTFLAGS = -O
-BUILDDIR = build
+BUILDDIR = target
 TESTDIR = $(BUILDDIR)/test
 
 all: $(BUILDDIR) test lib docs
@@ -13,7 +13,7 @@ $(TESTDIR): $(BUILDDIR)
 	mkdir -p $@
 
 lib:
-	$(RUSTC) $(RUSTFLAGS) --out-dir $(BUILDDIR) src/bencode.rs
+	cargo build
 
 clean:
 	rm -rf $(BUILDDIR)
