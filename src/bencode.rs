@@ -1288,14 +1288,14 @@ mod tests {
     gen_complete_test!(encodes_option_some,
                        tobencode_option_some,
                        identity_option_some,
-                       Some(1) -> bytes("i1e"),
+                       Some(1i) -> bytes("i1e"),
                        Some("rust".to_string()) -> bytes("4:rust"),
                        Some(vec![(), ()]) -> bytes("l0:0:e"))
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
-                       Some(Some(1)) -> bytes("i1e"),
+                       Some(Some(1i)) -> bytes("i1e"),
                        Some(Some("rust".to_string())) -> bytes("4:rust"))
 
     #[test]
@@ -1560,13 +1560,13 @@ mod tests {
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       vec![0, 1, 3, 4] -> bytes("li0ei1ei3ei4ee"),
+                       vec![0i, 1i, 3i, 4i] -> bytes("li0ei1ei3ei4ee"),
                        vec!["foo".to_string(), "b".to_string()] -> bytes("l3:foo1:be"))
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       vec![vec![1], vec![2, 3], vec![]] -> bytes("lli1eeli2ei3eelee"))
+                       vec![vec![1i], vec![2i, 3i], vec![]] -> bytes("lli1eeli2ei3eelee"))
 
     #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
     struct SimpleStruct {
@@ -1604,7 +1604,7 @@ mod tests {
                                   is_true: true,
                                   inner: vec![InnerStruct {
                                       field_one: (),
-                                      list: vec![99, 5],
+                                      list: vec![99u, 5u],
                                       abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
@@ -1641,13 +1641,13 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       map!(HashMap, ("a".to_string(), 1)) -> bytes("d1:ai1ee"),
+                       map!(HashMap, ("a".to_string(), 1i)) -> bytes("d1:ai1ee"),
                        map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string())) -> bytes("d3:bar2:bb3:foo1:ae"))
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101), ("bar".to_string(), 102)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
+                       map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101i), ("bar".to_string(), 102i)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Dict(map!(TreeMap, (Key(bytes("foo")), ByteString(bytes("bar")))));
@@ -1658,7 +1658,7 @@ mod tests {
 
     #[test]
     fn encode_error_on_wrong_map_key_type() {
-        let m = map!(HashMap, (1, "foo"));
+        let m = map!(HashMap, (1i, "foo"));
         let encoded = Encoder::buffer_encode(&m);
         assert!(encoded.is_err())
     }
