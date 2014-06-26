@@ -264,7 +264,7 @@ impl Bencode {
 }
 
 impl Key {
-    pub fn from_str(s: &'static str) -> Key {
+    pub fn from_str(s: &str) -> Key {
         Key(Vec::from_slice(s.as_bytes()))
     }
 }
