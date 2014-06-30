@@ -243,7 +243,7 @@ impl fmt::Show for Bencode {
 }
 
 #[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Show, Hash)]
-pub struct Key(Vec<u8>);
+pub struct Key(pub Vec<u8>);
 
 pub type List = Vec<Bencode>;
 pub type Dict = TreeMap<Key, Bencode>;
