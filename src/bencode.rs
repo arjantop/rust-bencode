@@ -267,6 +267,14 @@ impl Key {
     pub fn from_str(s: &str) -> Key {
         Key(Vec::from_slice(s.as_bytes()))
     }
+
+    pub fn from_slice(s: &[u8]) -> Key {
+        Key(Vec::from_slice(s))
+    }
+
+    pub fn as_slice<'a>(&'a self) -> &'a [u8] {
+        self.as_slice()
+    }
 }
 
 impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
