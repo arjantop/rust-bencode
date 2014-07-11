@@ -463,7 +463,7 @@ impl FromBencode for bool {
 
 impl ToBencode for char {
     fn to_bencode(&self) -> Bencode {
-        ByteString(Vec::from_slice(self.to_str().as_bytes()))
+        ByteString(Vec::from_slice(self.to_string().as_bytes()))
     }
 }
 
@@ -526,8 +526,8 @@ macro_rules! map_to_bencode {
 }
 
 macro_rules! map_from_bencode {
-    ($mty:ident) => {{
-        let res = match bencode {
+    ($mty:ident, $bencode:expr) => {{
+        let res = match $bencode {
             &Dict(ref map) => {
                 let mut m = $mty::new();
                 for (&Key(ref key), value) in map.iter() {
@@ -558,7 +558,7 @@ impl<T: ToBencode> ToBencode for TreeMap<String, T> {
 
 impl<T: FromBencode> FromBencode for TreeMap<String, T> {
     fn from_bencode(bencode: &Bencode) -> Option<TreeMap<String, T>> {
-        map_from_bencode!(TreeMap)
+        map_from_bencode!(TreeMap, bencode)
     }
 }
 
@@ -570,7 +570,7 @@ impl<T: ToBencode> ToBencode for HashMap<String, T> {
 
 impl<T: FromBencode> FromBencode for HashMap<String, T> {
     fn from_bencode(bencode: &Bencode) -> Option<HashMap<String, T>> {
-        map_from_bencode!(HashMap)
+        map_from_bencode!(HashMap, bencode)
     }
 }
 
@@ -663,14 +663,14 @@ impl<'a> Encoder<'a> {
     }
 }
 
-macro_rules! expect_value(() => {
-    if self.expect_key {
-        return self.error("Only 'string' map keys allowed");
+macro_rules! expect_value(($slf:expr) => {
+    if $slf.expect_key {
+        return $slf.error("Only 'string' map keys allowed");
     }
 })
 
 impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
-    fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(); write!(self.get_writer(), "0:") }
+    fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "0:") }
 
     fn emit_uint(&mut self, v: uint) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
@@ -690,10 +690,10 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_i32(&mut self, v: i32) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
-    fn emit_i64(&mut self, v: i64) -> EncoderResult<()> { expect_value!(); write!(self.get_writer(), "i{}e", v) }
+    fn emit_i64(&mut self, v: i64) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "i{}e", v) }
 
     fn emit_bool(&mut self, v: bool) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         if v {
             self.emit_str("true")
         } else {
@@ -702,17 +702,17 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_f32(&mut self, v: f32) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.emit_str(std::f32::to_str_hex(v).as_slice())
     }
 
     fn emit_f64(&mut self, v: f64) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.emit_str(std::f64::to_str_hex(v).as_slice())
     }
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.emit_str(str::from_char(v).as_slice())
     }
 
@@ -747,7 +747,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_struct(&mut self, _name: &str, _len: uint, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.stack.push(TreeMap::new());
         try!(f(self));
         let dict = self.stack.pop().unwrap();
@@ -757,7 +757,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_struct_field(&mut self, f_name: &str, _f_idx: uint, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.writers.push(io::MemWriter::new());
         try!(f(self));
         let data = self.writers.pop().unwrap();
@@ -784,23 +784,23 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_option(&mut self, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         f(self)
     }
 
     fn emit_option_none(&mut self) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.is_none = true;
         write!(self.get_writer(), "3:nil")
     }
 
     fn emit_option_some(&mut self, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         f(self)
     }
 
     fn emit_seq(&mut self, _len: uint, f: |this: &mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         try!(write!(self.get_writer(), "l"));
         try!(f(self));
         self.is_none = false;
@@ -808,14 +808,14 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_seq_elt(&mut self, _idx: uint, f: |this: &mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         try!(f(self));
         self.is_none = false;
         Ok(())
     }
 
     fn emit_map(&mut self, _len: uint, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.stack.push(TreeMap::new());
         try!(f(self));
         let dict = self.stack.pop().unwrap();
@@ -825,7 +825,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_map_elt_key(&mut self, _idx: uint, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         self.writers.push(io::MemWriter::new());
         self.expect_key = true;
         try!(f(self));
@@ -835,7 +835,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
     }
 
     fn emit_map_elt_val(&mut self, _idx: uint, f: |&mut Encoder<'a>| -> EncoderResult<()>) -> EncoderResult<()> {
-        expect_value!();
+        expect_value!(self);
         try!(f(self));
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
@@ -932,8 +932,8 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
     }
 }
 
-macro_rules! dec_expect_value(() => {
-    if self.expect_key {
+macro_rules! dec_expect_value(($slf:expr) => {
+    if $slf.expect_key {
         return Err(Message("Only 'string' map keys allowed".to_string()))
     }
 })
@@ -983,77 +983,77 @@ impl<'a> Decoder<'a> {
 
 impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     fn read_nil(&mut self) -> DecoderResult<()> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("nil")
     }
 
     fn read_uint(&mut self) -> DecoderResult<uint> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("uint")
     }
 
     fn read_u8(&mut self) -> DecoderResult<u8> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("u8")
     }
 
     fn read_u16(&mut self) -> DecoderResult<u16> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("u16")
     }
 
     fn read_u32(&mut self) -> DecoderResult<u32> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("u32")
     }
 
     fn read_u64(&mut self) -> DecoderResult<u64> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("u64")
     }
 
     fn read_int(&mut self) -> DecoderResult<int> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("int")
     }
 
     fn read_i8(&mut self) -> DecoderResult<i8> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("i8")
     }
 
     fn read_i16(&mut self) -> DecoderResult<i16> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("i16")
     }
 
     fn read_i32(&mut self) -> DecoderResult<i32> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("i32")
     }
 
     fn read_i64(&mut self) -> DecoderResult<i64> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("i64")
     }
 
     fn read_bool(&mut self) -> DecoderResult<bool> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("bool")
     }
 
     fn read_f32(&mut self) -> DecoderResult<f32> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("f32")
     }
 
     fn read_f64(&mut self) -> DecoderResult<f64> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("f64")
     }
 
     fn read_char(&mut self) -> DecoderResult<char> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.try_read("char")
     }
 
@@ -1090,14 +1090,14 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     }
 
     fn read_struct<T>(&mut self, _s_name: &str, _len: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         let res = try!(f(self));
         self.stack.pop();
         Ok(res)
     }
 
     fn read_struct_field<T>(&mut self, f_name: &str, _f_idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         let val = match self.stack.last() {
             Some(v) => {
                 match *v {
@@ -1107,7 +1107,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                             None => &EMPTY
                         }
                     }
-                    _ => return Err(Expecting("Dict", v.to_str()))
+                    _ => return Err(Expecting("Dict", v.to_string()))
                 }
             }
             None => return Err(Expecting("Dict", "None".to_string()))
@@ -1152,7 +1152,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     }
 
     fn read_seq<T>(&mut self, f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&List(ref list)) => {
                 for v in list.as_slice().iter().rev() {
@@ -1160,18 +1160,18 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 }
                 list.len()
             }
-            val => return Err(Expecting("List", val.to_str()))
+            val => return Err(Expecting("List", val.to_string()))
         };
         f(self, len)
     }
 
     fn read_seq_elt<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         f(self)
     }
 
     fn read_map<T>(&mut self, f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Dict(ref m)) => {
                 for (key, value) in m.iter() {
@@ -1180,13 +1180,13 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 }
                 m.len()
             }
-            val => return Err(Expecting("Dict", val.to_str()))
+            val => return Err(Expecting("Dict", val.to_string()))
         };
         f(self, len)
     }
 
     fn read_map_elt_key<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         self.expect_key = true;
         let res = try!(f(self));
         self.expect_key = false;
@@ -1194,7 +1194,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     }
 
     fn read_map_elt_val<T>(&mut self, _idx: uint, f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
-        dec_expect_value!();
+        dec_expect_value!(self);
         f(self)
     }
 }

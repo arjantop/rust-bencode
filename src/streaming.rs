@@ -32,16 +32,16 @@ pub struct StreamingParser<T> {
     stack: Vec<BencodePosition>,
 }
 
-macro_rules! expect(($ch:pat, $ex:expr) => (
-    match self.curr_char() {
-        Some($ch) => self.next_byte(),
-        _ => return self.error($ex)
+macro_rules! expect(($slf:expr, $ch:pat, $ex:expr) => (
+    match $slf.curr_char() {
+        Some($ch) => $slf.next_byte(),
+        _ => return $slf.error($ex)
     }
 ))
 
-macro_rules! check_nesting(() => (
-    if self.decoded > 0 && self.stack.len() == 0 {
-        return self.error_msg("Only one value allowed outside of containers".to_string())
+macro_rules! check_nesting(($slf:expr) => (
+    if $slf.decoded > 0 && $slf.stack.len() == 0 {
+        return $slf.error_msg("Only one value allowed outside of containers".to_string())
     }
 ))
 
@@ -110,7 +110,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
             _ => 1
         };
         let num = try!(self.parse_number_unsigned());
-        expect!('e', "e".to_string());
+        expect!(self, 'e', "e".to_string());
         Ok(sign * num)
     }
 
@@ -142,7 +142,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     #[inline(always)]
     fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
         let len = try!(self.parse_number_unsigned());
-        expect!(':', ":".to_string());
+        expect!(self, ':', ":".to_string());
         let bytes = try!(self.next_bytes(len as uint));
         Ok(bytes)
     }
@@ -161,7 +161,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
 
     #[inline(always)]
     fn parse_key(&mut self) -> Result<BencodeEvent, Error> {
-        check_nesting!();
+        check_nesting!(self);
         match self.curr_char() {
             Some('0' .. '9') => {
                 self.decoded += 1;
@@ -177,27 +177,27 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     fn parse_event(&mut self) -> Result<BencodeEvent, Error> {
         match self.curr_char() {
             Some('i') => {
-                check_nesting!();
+                check_nesting!(self);
                 self.next_byte();
                 self.decoded += 1;
                 let res = try!(self.parse_number());
                 Ok(NumberValue(res))
             }
             Some('0' .. '9') => {
-                check_nesting!();
+                check_nesting!(self);
                 self.decoded += 1;
                 let res = try!(self.parse_bytestring());
                 Ok(ByteStringValue(res))
             }
             Some('l') => {
-                check_nesting!();
+                check_nesting!(self);
                 self.next_byte();
                 self.decoded += 1;
                 self.stack.push(ListPosition);
                 Ok(ListStart)
             }
             Some('d') => {
-                check_nesting!();
+                check_nesting!(self);
                 self.next_byte();
                 self.decoded += 1;
                 self.stack.push(KeyPosition);
@@ -244,9 +244,9 @@ impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
 
 fn alphanum_to_str(ch: char) -> String {
     if ch.is_alphanumeric() {
-        ch.to_str()
+        ch.to_string()
     } else {
-        (ch as u8).to_str()
+        (ch as u8).to_string()
     }
 }
 
