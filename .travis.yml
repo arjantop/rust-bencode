@@ -7,6 +7,7 @@ before_install:
   - sudo apt-get update
 install:
   - sudo apt-get install cargo rust-nightly
+  - export LD_LIBRARY_PATH=/usr/lib/rust/rust-nightly/lib:${LD_LIBRARY_PATH}
 script:
   - rustc --version
   - make
