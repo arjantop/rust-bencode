@@ -47,7 +47,8 @@
 
   use collections::TreeMap;
 
-  use bencode::{Key, ToBencode};
+  use bencode::ToBencode;
+  use bencode::util::ByteString;
 
   struct MyStruct {
       a: int,
@@ -58,9 +59,9 @@
   impl ToBencode for MyStruct {
       fn to_bencode(&self) -> bencode::Bencode {
           let mut m = TreeMap::new();
-          m.insert(Key::from_str("a"), self.a.to_bencode());
-          m.insert(Key::from_str("b"), self.b.to_bencode());
-          m.insert(Key::from_str("c"), bencode::ByteString(Vec::from_slice(self.c.as_slice())));
+          m.insert(ByteString::from_str("a"), self.a.to_bencode());
+          m.insert(ByteString::from_str("b"), self.b.to_bencode());
+          m.insert(ByteString::from_str("c"), bencode::ByteString(Vec::from_slice(self.c.as_slice())));
           bencode::Dict(m)
       }
   }
@@ -111,7 +112,8 @@
 
   use collections::TreeMap;
 
-  use bencode::{FromBencode, ToBencode, Dict, Key};
+  use bencode::{FromBencode, ToBencode, Dict};
+  use bencode::util::ByteString;
 
   #[deriving(PartialEq)]
   struct MyStruct {
@@ -121,7 +123,7 @@
   impl ToBencode for MyStruct {
       fn to_bencode(&self) -> bencode::Bencode {
           let mut m = TreeMap::new();
-          m.insert(Key::from_str("a"), self.a.to_bencode());
+          m.insert(ByteString::from_str("a"), self.a.to_bencode());
           bencode::Dict(m)
       }
   }
@@ -130,7 +132,7 @@
       fn from_bencode(bencode: &bencode::Bencode) -> Option<MyStruct> {
           match bencode {
               &Dict(ref m) => {
-                  match m.find(&Key::from_str("a")) {
+                  match m.find(&ByteString::from_str("a")) {
                       Some(a) => FromBencode::from_bencode(a).map(|a| {
                           MyStruct{ a: a }
                       }),
@@ -208,6 +210,7 @@ use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
                 ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
 pub mod streaming;
+pub mod util;
 
 #[deriving(PartialEq, Clone)]
 pub enum Bencode {
@@ -242,11 +245,8 @@ impl fmt::Show for Bencode {
     }
 }
 
-#[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Show, Hash)]
-pub struct Key(Vec<u8>);
-
 pub type List = Vec<Bencode>;
-pub type Dict = TreeMap<Key, Bencode>;
+pub type Dict = TreeMap<util::ByteString, Bencode>;
 
 impl Bencode {
     pub fn to_writer(&self, writer: &mut io::Writer) -> io::IoResult<()> {
@@ -263,20 +263,6 @@ impl Bencode {
     }
 }
 
-impl Key {
-    pub fn from_str(s: &str) -> Key {
-        Key(Vec::from_slice(s.as_bytes()))
-    }
-
-    pub fn from_slice(s: &[u8]) -> Key {
-        Key(Vec::from_slice(s))
-    }
-
-    pub fn as_slice<'a>(&'a self) -> &'a [u8] {
-        self.as_slice()
-    }
-}
-
 impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
     fn encode(&self, e: &mut S) -> Result<(), E> {
         match self {
@@ -286,13 +272,6 @@ impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
             &List(ref v) => v.encode(e),
             &Dict(ref v) => v.encode(e)
         }
-    }
-}
-
-impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Key {
-    fn encode(&self, e: &mut S) -> Result<(), E> {
-        let &Key(ref key) = self;
-        e.emit_str(unsafe { raw::from_utf8(key.as_slice()) })
     }
 }
 
@@ -519,7 +498,7 @@ macro_rules! map_to_bencode {
     ($m:expr) => {{
         let mut m = TreeMap::new();
         for (key, value) in $m.iter() {
-            m.insert(Key(Vec::from_slice(key.as_bytes())), value.to_bencode());
+            m.insert(util::ByteString::from_vec(Vec::from_slice(key.as_bytes())), value.to_bencode());
         }
         Dict(m)
     }}
@@ -530,7 +509,7 @@ macro_rules! map_from_bencode {
         let res = match $bencode {
             &Dict(ref map) => {
                 let mut m = $mty::new();
-                for (&Key(ref key), value) in map.iter() {
+                for (key, value) in map.iter() {
                     match str::from_utf8(key.as_slice()) {
                         Some(k) => {
                             let val: Option<T> = FromBencode::from_bencode(value);
@@ -604,10 +583,10 @@ pub struct Encoder<'a> {
     writer: &'a mut io::Writer,
     writers: Vec<io::MemWriter>,
     expect_key: bool,
-    keys: Vec<Key>,
+    keys: Vec<util::ByteString>,
     error: io::IoResult<()>,
     is_none: bool,
-    stack: Vec<TreeMap<Key, Vec<u8>>>,
+    stack: Vec<TreeMap<util::ByteString, Vec<u8>>>,
 }
 
 impl<'a> Encoder<'a> {
@@ -645,7 +624,7 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn encode_dict(&mut self, dict: &TreeMap<Key, Vec<u8>>) -> EncoderResult<()> {
+    fn encode_dict(&mut self, dict: &TreeMap<util::ByteString, Vec<u8>>) -> EncoderResult<()> {
         try!(write!(self.get_writer(), "d"));
         for (key, value) in dict.iter() {
             try!(key.encode(self));
@@ -718,7 +697,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
         if self.expect_key {
-            self.keys.push(Key(Vec::from_slice(v.as_bytes())));
+            self.keys.push(util::ByteString::from_slice(v.as_bytes()));
             Ok(())
         } else {
             try!(write!(self.get_writer(), "{}:", v.len()));
@@ -763,7 +742,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         let data = self.writers.pop().unwrap();
         let dict = self.stack.mut_last().unwrap();
         if !self.is_none {
-            dict.insert(Key(Vec::from_slice(f_name.as_bytes())), data.unwrap());
+            dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data.unwrap());
         }
         self.is_none = false;
         Ok(())
@@ -919,7 +898,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
             current = self.reader.next();
             let key = match current {
                 Some(DictEnd) => break,
-                Some(DictKey(v)) => Key(v),
+                Some(DictKey(v)) => util::ByteString::from_vec(v),
                 Some(ParseError(err)) => return Err(err),
                 x => fail!("[dict] Unreachable but got {}", x)
             };
@@ -943,6 +922,7 @@ static EMPTY: Bencode = Empty;
 #[deriving(Eq, PartialEq, Clone, Show)]
 pub enum DecoderError {
     Message(String),
+    StringEncoding(Vec<u8>),
     Expecting(&'static str, String),
     Unimplemented(&'static str),
 }
@@ -950,7 +930,7 @@ pub enum DecoderError {
 pub type DecoderResult<T> = Result<T, DecoderError>;
 
 pub struct Decoder<'a> {
-    keys: Vec<Key>,
+    keys: Vec<util::ByteString>,
     expect_key: bool,
     stack: Vec<&'a Bencode>,
 }
@@ -1059,13 +1039,19 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
 
     fn read_str(&mut self) -> DecoderResult<String> {
         if self.expect_key {
-            let Key(b) = self.keys.pop().unwrap();
-            match str::from_utf8_owned(Vec::from_slice(b.as_slice())) {
+            let b = self.keys.pop().unwrap().unwrap();
+            match str::from_utf8_owned(b) {
                 Ok(s) => Ok(s),
-                Err(_) => self.error("error decoding key as utf-8".to_string())
+                Err(v) => Err(StringEncoding(v))
             }
         } else {
-            self.try_read("str")
+            let bencode = self.stack.pop();
+            match bencode {
+                Some(&ByteString(ref v)) => {
+                    str::from_utf8_owned(v.clone()).map_err(|b| StringEncoding(b))
+                }
+                _ => self.error(format!("Error decoding value as str: {}", bencode))
+            }
         }
     }
 
@@ -1102,7 +1088,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             Some(v) => {
                 match *v {
                     &Dict(ref m) => {
-                        match m.find(&Key(Vec::from_slice(f_name.as_bytes()))) {
+                        match m.find(&util::ByteString::from_slice(f_name.as_bytes())) {
                             Some(v) => v,
                             None => &EMPTY
                         }
@@ -1210,8 +1196,10 @@ mod tests {
                     ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
     use super::{Bencode, ToBencode};
-    use super::{Encoder, ByteString, List, Number, Dict, Key, Empty};
+    use super::{Encoder, ByteString, List, Number, Dict, Empty};
     use super::{Parser, Decoder, DecoderResult};
+
+    use super::util;
 
     macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
         let value = $value;
@@ -1658,7 +1646,7 @@ mod tests {
                        map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101i), ("bar".to_string(), 102i)))) -> bytes("d1:ad3:bari102e3:fooi101eee"))
     #[test]
     fn decode_error_on_wrong_map_key_type() {
-        let benc = Dict(map!(TreeMap, (Key(bytes("foo")), ByteString(bytes("bar")))));
+        let benc = Dict(map!(TreeMap, (util::ByteString::from_vec(bytes("foo")), ByteString(bytes("bar")))));
         let mut decoder = Decoder::new(&benc);
         let res: DecoderResult<TreeMap<int, String>> = Decodable::decode(&mut decoder);
         assert!(res.is_err());
@@ -1784,9 +1772,9 @@ mod tests {
     #[test]
     fn encodes_dict_with_items() {
         let mut m = TreeMap::new();
-        m.insert(Key::from_str("k1"), Number(1));
+        m.insert(util::ByteString::from_str("k1"), Number(1));
         assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1ee"));
-        m.insert(Key::from_str("k2"), ByteString(vec![0, 0]));
+        m.insert(util::ByteString::from_str("k2"), ByteString(vec![0, 0]));
         assert_eq!(try_bencode(Dict(m.clone())), bytes("d2:k1i1e2:k22:\0\0e"));
     }
 
@@ -1794,17 +1782,17 @@ mod tests {
     fn encodes_nested_dict() {
         let mut outer = TreeMap::new();
         let mut inner = TreeMap::new();
-        inner.insert(Key::from_str("val"), ByteString(vec![68, 0, 90]));
-        outer.insert(Key::from_str("inner"), Dict(inner));
+        inner.insert(util::ByteString::from_str("val"), ByteString(vec![68, 0, 90]));
+        outer.insert(util::ByteString::from_str("inner"), Dict(inner));
         assert_eq!(try_bencode(Dict(outer)), bytes("d5:innerd3:val3:D\0Zee"));
     }
 
     #[test]
     fn encodes_dict_fields_in_sorted_order() {
         let mut m = TreeMap::new();
-        m.insert(Key::from_str("z"), Number(1));
-        m.insert(Key::from_str("abd"), Number(3));
-        m.insert(Key::from_str("abc"), Number(2));
+        m.insert(util::ByteString::from_str("z"), Number(1));
+        m.insert(util::ByteString::from_str("abd"), Number(3));
+        m.insert(util::ByteString::from_str("abc"), Number(2));
         assert_eq!(try_bencode(Dict(m)), bytes("d3:abci2e3:abdi3e1:zi1ee"));
     }
 
@@ -1866,7 +1854,7 @@ mod tests {
     #[test]
     fn decodes_dict_with_value() {
         let mut map = TreeMap::new();
-        map.insert(Key::from_str("foo"), ByteString(bytes("rust")));
+        map.insert(util::ByteString::from_str("foo"), ByteString(bytes("rust")));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("foo")),
                            ByteStringValue(bytes("rust")),
@@ -1876,9 +1864,9 @@ mod tests {
     #[test]
     fn decodes_dict_with_values() {
         let mut map = TreeMap::new();
-        map.insert(Key::from_str("num"), Number(9));
-        map.insert(Key::from_str("str"), ByteString(bytes("abc")));
-        map.insert(Key::from_str("list"), List(vec![Number(99)]));
+        map.insert(util::ByteString::from_str("num"), Number(9));
+        map.insert(util::ByteString::from_str("str"), ByteString(bytes("abc")));
+        map.insert(util::ByteString::from_str("list"), List(vec![Number(99)]));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("num")),
                            NumberValue(9),
@@ -1894,10 +1882,10 @@ mod tests {
     #[test]
     fn decodes_nested_dict() {
         let mut inner = TreeMap::new();
-        inner.insert(Key::from_str("inner"), Number(2));
+        inner.insert(util::ByteString::from_str("inner"), Number(2));
         let mut outer = TreeMap::new();
-        outer.insert(Key::from_str("dict"), Dict(inner));
-        outer.insert(Key::from_str("outer"), Number(1));
+        outer.insert(util::ByteString::from_str("dict"), Dict(inner));
+        outer.insert(util::ByteString::from_str("outer"), Number(1));
         assert_decoded_eq([DictStart,
                            DictKey(bytes("outer")),
                            NumberValue(1),
