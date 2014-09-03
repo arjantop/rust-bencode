@@ -580,7 +580,7 @@ macro_rules! tryenc(($e:expr) => (
 pub type EncoderResult<T> = IoResult<T>;
 
 pub struct Encoder<'a> {
-    writer: &'a mut io::Writer,
+    writer: &'a mut io::Writer + 'a,
     writers: Vec<io::MemWriter>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
@@ -692,7 +692,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(str::from_char(v).as_slice())
+        self.emit_str(v.to_string().as_slice())
     }
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
@@ -948,12 +948,8 @@ impl<'a> Decoder<'a> {
         let val = self.stack.pop();
         match val.and_then(|b| FromBencode::from_bencode(b)) {
             Some(v) => Ok(v),
-            None => self.error(format!("Error decoding value as '{}': {}", ty, val))
+            None => Err(Message(format!("Error decoding value as '{}': {}", ty, val)))
         }
-    }
-
-    fn error<T>(&self, msg: String) -> DecoderResult<T> {
-        Err(Message(msg))
     }
 
     fn unimplemented<T>(&self, m: &'static str) -> DecoderResult<T> {
@@ -962,6 +958,10 @@ impl<'a> Decoder<'a> {
 }
 
 impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
+    fn error(&mut self, err: &str) -> DecoderError {
+        Message(err.to_string())
+    }
+
     fn read_nil(&mut self) -> DecoderResult<()> {
         dec_expect_value!(self);
         self.try_read("nil")
@@ -1040,7 +1040,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     fn read_str(&mut self) -> DecoderResult<String> {
         if self.expect_key {
             let b = self.keys.pop().unwrap().unwrap();
-            match str::from_utf8_owned(b) {
+            match String::from_utf8(b) {
                 Ok(s) => Ok(s),
                 Err(v) => Err(StringEncoding(v))
             }
@@ -1048,9 +1048,9 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             let bencode = self.stack.pop();
             match bencode {
                 Some(&ByteString(ref v)) => {
-                    str::from_utf8_owned(v.clone()).map_err(|b| StringEncoding(b))
+                    String::from_utf8(v.clone()).map_err(|b| StringEncoding(b))
                 }
-                _ => self.error(format!("Error decoding value as str: {}", bencode))
+                _ => Err(self.error(format!("Error decoding value as str: {}", bencode).as_slice()))
             }
         }
     }
@@ -1119,13 +1119,14 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
     }
 
     fn read_option<T>(&mut self, f: |&mut Decoder<'a>, bool| -> DecoderResult<T>) -> DecoderResult<T> {
-        match self.stack.pop() {
+        let value = self.stack.pop();
+        match value {
             Some(&Empty) => f(self, false),
-            Some(b@&ByteString(ref v)) => {
+            Some(&ByteString(ref v)) => {
                 if v.as_slice() == b"nil" {
                     f(self, false)
                 } else {
-                    self.stack.push(b);
+                    self.stack.push(value.unwrap());
                     f(self, true)
                 }
             },
