@@ -177,7 +177,7 @@
       let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![2, 2, 3, 4] };
       let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
 
-      let mut streaming = StreamingParser::new(enc.move_iter());
+      let mut streaming = StreamingParser::new(enc.into_iter());
       for event in streaming {
           match event {
               streaming::DictStart => println!("dict start"),
@@ -558,7 +558,7 @@ pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
 }
 
 pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
-    from_iter(buf.move_iter())
+    from_iter(buf.into_iter())
 }
 
 pub fn from_iter<T: Iterator<u8>>(iter: T) -> Result<Bencode, Error> {
@@ -620,7 +620,7 @@ impl<'a> Encoder<'a> {
         if self.writers.len() == 0 {
             &mut self.writer as &'a mut io::Writer
         } else {
-            self.writers.mut_last().unwrap() as &'a mut io::Writer
+            self.writers.last_mut().unwrap() as &'a mut io::Writer
         }
     }
 
@@ -740,7 +740,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         self.writers.push(io::MemWriter::new());
         try!(f(self));
         let data = self.writers.pop().unwrap();
-        let dict = self.stack.mut_last().unwrap();
+        let dict = self.stack.last_mut().unwrap();
         if !self.is_none {
             dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data.unwrap());
         }
@@ -818,7 +818,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         try!(f(self));
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
-        let dict = self.stack.mut_last().unwrap();
+        let dict = self.stack.last_mut().unwrap();
         dict.insert(key.unwrap(), data.unwrap());
         self.is_none = false;
         Ok(())
@@ -1798,7 +1798,7 @@ mod tests {
     }
 
     fn assert_decoded_eq(events: &[BencodeEvent], expected: Result<Bencode, Error>) {
-        let mut parser = Parser::new(events.to_owned().move_iter());
+        let mut parser = Parser::new(events.to_vec().into_iter());
         let result = parser.parse();
         assert_eq!(expected, result);
     }
@@ -1950,7 +1950,7 @@ mod bench {
         let v = Vec::from_fn(100, |n| n);
         let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
-            let streaming_parser = StreamingParser::new(b.clone().move_iter());
+            let streaming_parser = StreamingParser::new(b.clone().into_iter());
             let mut parser = Parser::new(streaming_parser);
             let bencode = parser.parse().unwrap();
             let mut decoder = Decoder::new(&bencode);
