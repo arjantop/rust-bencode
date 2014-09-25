@@ -10,11 +10,11 @@ pub struct ByteString(Vec<u8>);
 
 impl ByteString {
     pub fn from_str(s: &str) -> ByteString {
-        ByteString(Vec::from_slice(s.as_bytes()))
+        ByteString(s.as_bytes().to_vec())
     }
 
     pub fn from_slice(s: &[u8]) -> ByteString {
-        ByteString(Vec::from_slice(s))
+        ByteString(s.to_vec())
     }
 
     pub fn from_vec(s: Vec<u8>) -> ByteString {

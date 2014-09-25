@@ -260,7 +260,7 @@ mod test {
     use super::alphanum_to_str;
 
     fn bytes(s: &str) -> Vec<u8> {
-        Vec::from_slice(s.as_bytes())
+        s.as_bytes().to_vec()
     }
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {

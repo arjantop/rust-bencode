@@ -61,7 +61,7 @@
           let mut m = TreeMap::new();
           m.insert(ByteString::from_str("a"), self.a.to_bencode());
           m.insert(ByteString::from_str("b"), self.b.to_bencode());
-          m.insert(ByteString::from_str("c"), bencode::ByteString(Vec::from_slice(self.c.as_slice())));
+          m.insert(ByteString::from_str("c"), bencode::ByteString(self.c.as_slice().to_vec()));
           bencode::Dict(m)
       }
   }
@@ -217,8 +217,8 @@ pub enum Bencode {
     Empty,
     Number(i64),
     ByteString(Vec<u8>),
-    List(List),
-    Dict(Dict),
+    List(ListVec),
+    Dict(DictMap),
 }
 
 impl fmt::Show for Bencode {
@@ -245,8 +245,8 @@ impl fmt::Show for Bencode {
     }
 }
 
-pub type List = Vec<Bencode>;
-pub type Dict = TreeMap<util::ByteString, Bencode>;
+pub type ListVec = Vec<Bencode>;
+pub type DictMap = TreeMap<util::ByteString, Bencode>;
 
 impl Bencode {
     pub fn to_writer(&self, writer: &mut io::Writer) -> io::IoResult<()> {
@@ -308,7 +308,7 @@ impl<T: ToBencode> ToBencode for Option<T> {
     fn to_bencode(&self) -> Bencode {
         match self {
             &Some(ref v) => v.to_bencode(),
-            &None => ByteString(Vec::from_slice(b"nil"))
+            &None => ByteString(b"nil".to_vec())
         }
     }
 }
@@ -375,7 +375,7 @@ derive_num_from_bencode!(u64)
 
 impl ToBencode for f32 {
     fn to_bencode(&self) -> Bencode {
-        ByteString(Vec::from_slice(std::f32::to_str_hex(*self).as_bytes()))
+        ByteString(std::f32::to_str_hex(*self).as_bytes().to_vec())
     }
 }
 
@@ -395,7 +395,7 @@ impl FromBencode for f32 {
 
 impl ToBencode for f64 {
     fn to_bencode(&self) -> Bencode {
-        ByteString(Vec::from_slice(std::f64::to_str_hex(*self).as_bytes()))
+        ByteString(std::f64::to_str_hex(*self).as_bytes().to_vec())
     }
 }
 
@@ -416,9 +416,9 @@ impl FromBencode for f64 {
 impl ToBencode for bool {
     fn to_bencode(&self) -> Bencode {
         if *self {
-            ByteString(Vec::from_slice(b"true"))
+            ByteString(b"true".to_vec())
         } else {
-            ByteString(Vec::from_slice(b"false"))
+            ByteString(b"false".to_vec())
         }
     }
 }
@@ -442,7 +442,7 @@ impl FromBencode for bool {
 
 impl ToBencode for char {
     fn to_bencode(&self) -> Bencode {
-        ByteString(Vec::from_slice(self.to_string().as_bytes()))
+        ByteString(self.to_string().as_bytes().to_vec())
     }
 }
 
@@ -460,7 +460,7 @@ impl FromBencode for char {
 }
 
 impl ToBencode for String {
-    fn to_bencode(&self) -> Bencode { ByteString(Vec::from_slice(self.as_bytes())) }
+    fn to_bencode(&self) -> Bencode { ByteString(self.as_bytes().to_vec()) }
 }
 
 impl FromBencode for String {
@@ -498,7 +498,7 @@ macro_rules! map_to_bencode {
     ($m:expr) => {{
         let mut m = TreeMap::new();
         for (key, value) in $m.iter() {
-            m.insert(util::ByteString::from_vec(Vec::from_slice(key.as_bytes())), value.to_bencode());
+            m.insert(util::ByteString::from_vec(key.as_bytes().to_vec()), value.to_bencode());
         }
         Dict(m)
     }}
@@ -554,7 +554,7 @@ impl<T: FromBencode> FromBencode for HashMap<String, T> {
 }
 
 pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
-    from_vec(Vec::from_slice(buf))
+    from_vec(buf.to_vec())
 }
 
 pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
@@ -940,7 +940,7 @@ impl<'a> Decoder<'a> {
         Decoder {
             keys: Vec::new(),
             expect_key: false,
-            stack: Vec::from_slice([bencode])
+            stack: vec![bencode],
         }
     }
 
@@ -1266,7 +1266,7 @@ mod tests {
     })
 
     fn bytes(s: &str) -> Vec<u8> {
-        Vec::from_slice(s.as_bytes())
+        s.as_bytes().to_vec()
     }
 
     gen_complete_test!(encodes_unit,
@@ -1742,8 +1742,8 @@ mod tests {
 
     #[test]
     fn encodes_nonempty_bytestring() {
-        assert_eq!(try_bencode(ByteString(Vec::from_slice(b"abc"))), bytes("3:abc"));
-        assert_eq!(try_bencode(ByteString(vec![0, 1, 2, 3])), bytes("4:").append([0u8, 1, 2, 3]));
+        assert_eq!(try_bencode(ByteString(b"abc".to_vec())), bytes("3:abc"));
+        assert_eq!(try_bencode(ByteString(vec![0, 1, 2, 3])), bytes("4:\x00\x01\x02\x03"));
     }
 
     #[test]
@@ -1754,7 +1754,7 @@ mod tests {
     #[test]
     fn encodes_nonempty_list() {
         assert_eq!(try_bencode(List(vec![Number(1)])), bytes("li1ee"));
-        assert_eq!(try_bencode(List(vec![ByteString(Vec::from_slice("foobar".as_bytes())),
+        assert_eq!(try_bencode(List(vec![ByteString("foobar".as_bytes().to_vec()),
                           Number(-1)])), bytes("l6:foobari-1ee"));
     }
 
