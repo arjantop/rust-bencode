@@ -119,10 +119,10 @@ impl<T: Iterator<u8>> StreamingParser<T> {
         let mut num = 0;
         match self.curr_char() {
             Some('0') => self.next_byte(),
-            Some('1' .. '9') => {
+            Some('1' ... '9') => {
                 loop {
                     match self.curr_char() {
-                        Some(ch @ '0' .. '9') => self.parse_digit(ch, &mut num),
+                        Some(ch @ '0' ... '9') => self.parse_digit(ch, &mut num),
                         _ => break
                     }
                     self.next_byte();
@@ -163,7 +163,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     fn parse_key(&mut self) -> Result<BencodeEvent, Error> {
         check_nesting!(self);
         match self.curr_char() {
-            Some('0' .. '9') => {
+            Some('0' ... '9') => {
                 self.decoded += 1;
                 let res = try!(self.parse_bytestring());
                 Ok(DictKey(res))
@@ -183,7 +183,7 @@ impl<T: Iterator<u8>> StreamingParser<T> {
                 let res = try!(self.parse_number());
                 Ok(NumberValue(res))
             }
-            Some('0' .. '9') => {
+            Some('0' ... '9') => {
                 check_nesting!(self);
                 self.decoded += 1;
                 let res = try!(self.parse_bytestring());
@@ -273,7 +273,7 @@ mod test {
     fn parse_error_on_invalid_first_character() {
         for n in range(::std::u8::MIN, ::std::u8::MAX) {
             match n as char {
-                'i' | '0' .. '9' | 'l' | 'd' | 'e' => continue,
+                'i' | '0' ... '9' | 'l' | 'd' | 'e' => continue,
                 _ => {}
             };
             let msg = format!("Expecting 'i or 0-9 or l or d or e' but got '{}'", alphanum_to_str(n as char));
