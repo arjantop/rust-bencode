@@ -851,7 +851,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
             Some(DictStart) => self.parse_dict(current),
             Some(ParseError(err)) => Err(err),
             None => Ok(Empty),
-            x => fail!("[root] Unreachable but got {}", x)
+            x => panic!("[root] Unreachable but got {}", x)
         };
         if self.depth == 0 {
             let next = self.reader.next();
@@ -861,7 +861,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
                     match next {
                         Some(ParseError(err)) => Err(err),
                         None => res,
-                        x => fail!("Unreachable but got {}", x)
+                        x => panic!("Unreachable but got {}", x)
                     }
                 }
             }
@@ -884,7 +884,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
                         err@Err(_) => return err
                     }
                 }
-                x => fail!("[list] Unreachable but got {}", x)
+                x => panic!("[list] Unreachable but got {}", x)
             }
         }
         self.depth -= 1;
@@ -900,7 +900,7 @@ impl<T: Iterator<BencodeEvent>> Parser<T> {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => util::ByteString::from_vec(v),
                 Some(ParseError(err)) => return Err(err),
-                x => fail!("[dict] Unreachable but got {}", x)
+                x => panic!("[dict] Unreachable but got {}", x)
             };
             current = self.reader.next();
             let value = try!(self.parse_elem(current));
@@ -1206,7 +1206,7 @@ mod tests {
         let value = $value;
         let encoded = match Encoder::buffer_encode(&value) {
             Ok(e) => e,
-            Err(err) => fail!("Unexpected failure: {}", err)
+            Err(err) => panic!("Unexpected failure: {}", err)
         };
         assert_eq!($expected.as_slice(), encoded.as_slice());
     }))
@@ -1239,7 +1239,7 @@ mod tests {
         let value = $value;
         let encoded = match Encoder::buffer_encode(&value) {
             Ok(e) => e,
-            Err(err) => fail!("Unexpected failure: {}", err)
+            Err(err) => panic!("Unexpected failure: {}", err)
         };
         let bencode = super::from_vec(encoded).unwrap();
         let mut decoder = Decoder::new(&bencode);
@@ -1300,7 +1300,7 @@ mod tests {
         let value: Option<Option<int>> = Some(None);
         let encoded = match Encoder::buffer_encode(&value) {
             Ok(e) => e,
-            Err(err) => fail!("Unexpected failure: {}", err)
+            Err(err) => panic!("Unexpected failure: {}", err)
         };
         let none: Option<Option<int>> = None;
         assert_decoding!(encoded, none);
@@ -1731,7 +1731,7 @@ mod tests {
     fn try_bencode(bencode: Bencode) -> Vec<u8> {
         match bencode.to_bytes() {
             Ok(v) => v,
-            Err(err) => fail!("Unexpected error: {}", err)
+            Err(err) => panic!("Unexpected error: {}", err)
         }
     }
 

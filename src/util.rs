@@ -61,7 +61,7 @@ mod test {
         let bs = ByteString::from_slice([45, 18, 128]);
         let encoded = match Encoder::buffer_encode(&bs) {
             Ok(e) => e,
-            Err(err) => fail!("Unexpected failure: {}", err)
+            Err(err) => panic!("Unexpected failure: {}", err)
         };
         assert_eq!(vec![51, 58, 45, 18, 128], encoded);
     }
