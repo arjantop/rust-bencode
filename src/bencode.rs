@@ -202,8 +202,8 @@ use std::vec::Vec;
 
 use serialize::{Encodable};
 
-use std::collections::treemap::TreeMap;
-use std::collections::hashmap::HashMap;
+use std::collections::TreeMap;
+use std::collections::HashMap;
 
 use streaming::{StreamingParser, Error};
 use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
@@ -1102,7 +1102,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         f(self)
     }
 
-    fn read_tuple<T>(&mut self, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+    fn read_tuple<T>(&mut self, _: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
         self.unimplemented("read_tuple")
     }
 
@@ -1110,7 +1110,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         self.unimplemented("read_tuple_arg")
     }
 
-    fn read_tuple_struct<T>(&mut self, _s_name: &str, _f: |&mut Decoder<'a>, uint| -> DecoderResult<T>) -> DecoderResult<T> {
+    fn read_tuple_struct<T>(&mut self, _s_name: &str, _: uint, _f: |&mut Decoder<'a>| -> DecoderResult<T>) -> DecoderResult<T> {
         self.unimplemented("read_tuple_struct")
     }
 
@@ -1189,8 +1189,8 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
 #[cfg(test)]
 mod tests {
     use serialize::{Encodable, Decodable};
-    use std::collections::treemap::TreeMap;
-    use std::collections::hashmap::HashMap;
+    use std::collections::TreeMap;
+    use std::collections::HashMap;
 
     use streaming::Error;
     use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
