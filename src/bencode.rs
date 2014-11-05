@@ -199,6 +199,7 @@ use std::fmt;
 use std::str;
 use std::str::raw;
 use std::vec::Vec;
+use std::num::FromStrRadix;
 
 use serialize::{Encodable};
 
@@ -384,7 +385,7 @@ impl FromBencode for f32 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v.as_slice()) {
-                    Some(s) => std::f32::from_str_hex(s),
+                    Some(s) => FromStrRadix::from_str_radix(s, 16),
                     None => None
                 }
             }
@@ -404,7 +405,7 @@ impl FromBencode for f64 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v.as_slice()) {
-                    Some(s) => std::f64::from_str_hex(s),
+                    Some(s) => FromStrRadix::from_str_radix(s, 16),
                     None => None
                 }
             }
