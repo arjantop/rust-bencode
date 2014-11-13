@@ -1,5 +1,4 @@
 use std::str::raw;
-use std::str;
 use std::fmt;
 
 use serialize;
@@ -35,11 +34,9 @@ impl ByteString {
 
 impl fmt::Show for ByteString {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        use fmt_bytestring;
         match self {
-            &ByteString(ref v) => match str::from_utf8(v.as_slice()) {
-                Some(s) => write!(fmt, "s\"{}\"", s),
-                None    => write!(fmt, "s{}", v),
-            }
+            &ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
         }
     }
 }
