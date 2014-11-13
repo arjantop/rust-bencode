@@ -1,11 +1,12 @@
 use std::str::raw;
+use std::fmt;
 
 use serialize;
 use serialize::{Encodable, Decodable, Decoder};
 
 use super::{DecoderError, StringEncoding};
 
-#[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Show, Hash)]
+#[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub struct ByteString(Vec<u8>);
 
 impl ByteString {
@@ -28,6 +29,15 @@ impl ByteString {
     pub fn unwrap(self) -> Vec<u8> {
         let ByteString(v) = self;
         v
+    }
+}
+
+impl fmt::Show for ByteString {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        use fmt_bytestring;
+        match self {
+            &ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
+        }
     }
 }
 

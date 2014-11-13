@@ -132,7 +132,7 @@
       fn from_bencode(bencode: &bencode::Bencode) -> Option<MyStruct> {
           match bencode {
               &Bencode::Dict(ref m) => {
-                  match m.find(&ByteString::from_str("a")) {
+                  match m.get(&ByteString::from_str("a")) {
                       Some(a) => FromBencode::from_bencode(a).map(|a| {
                           MyStruct{ a: a }
                       }),
@@ -213,6 +213,14 @@ use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
 pub mod streaming;
 pub mod util;
 
+#[inline]
+fn fmt_bytestring(s: &[u8], fmt: &mut fmt::Formatter) -> fmt::Result {
+  match str::from_utf8(s) {
+    Some(s) => write!(fmt, "s\"{}\"", s),
+    None    => write!(fmt, "s{}", s),
+  }
+}
+
 #[deriving(PartialEq, Clone)]
 pub enum Bencode {
     Empty,
@@ -227,7 +235,7 @@ impl fmt::Show for Bencode {
         match self {
             &Bencode::Empty => { Ok(()) }
             &Bencode::Number(v) => write!(fmt, "{}", v),
-            &Bencode::ByteString(ref v) => write!(fmt, "s{}", v),
+            &Bencode::ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
             &Bencode::List(ref v) => write!(fmt, "{}", v),
             &Bencode::Dict(ref v) => {
                 try!(write!(fmt, "{{"));
@@ -1089,7 +1097,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             Some(v) => {
                 match *v {
                     &Bencode::Dict(ref m) => {
-                        match m.find(&util::ByteString::from_slice(f_name.as_bytes())) {
+                        match m.get(&util::ByteString::from_slice(f_name.as_bytes())) {
                             Some(v) => v,
                             None => &EMPTY
                         }
