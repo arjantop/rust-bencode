@@ -132,7 +132,7 @@
       fn from_bencode(bencode: &bencode::Bencode) -> Option<MyStruct> {
           match bencode {
               &Bencode::Dict(ref m) => {
-                  match m.find(&ByteString::from_str("a")) {
+                  match m.get(&ByteString::from_str("a")) {
                       Some(a) => FromBencode::from_bencode(a).map(|a| {
                           MyStruct{ a: a }
                       }),
@@ -1089,7 +1089,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             Some(v) => {
                 match *v {
                     &Bencode::Dict(ref m) => {
-                        match m.find(&util::ByteString::from_slice(f_name.as_bytes())) {
+                        match m.get(&util::ByteString::from_slice(f_name.as_bytes())) {
                             Some(v) => v,
                             None => &EMPTY
                         }
