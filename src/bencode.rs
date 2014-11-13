@@ -228,8 +228,8 @@ impl fmt::Show for Bencode {
             &Bencode::Empty => { Ok(()) }
             &Bencode::Number(v) => write!(fmt, "{}", v),
             &Bencode::ByteString(ref v) => match str::from_utf8(v.as_slice()) {
-              Some(s) => write!(fmt, "s\"{}\"", s),
-              None    => write!(fmt, "s{}", v),
+                Some(s) => write!(fmt, "s\"{}\"", s),
+                None    => write!(fmt, "s{}", v),
             },
             &Bencode::List(ref v) => write!(fmt, "{}", v),
             &Bencode::Dict(ref v) => {
