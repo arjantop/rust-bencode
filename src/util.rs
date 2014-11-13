@@ -37,8 +37,8 @@ impl fmt::Show for ByteString {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self {
             &ByteString(ref v) => match str::from_utf8(v.as_slice()) {
-                Some(s) => write!(fmt, "ByteString(\"{}\")", s),
-                None    => write!(fmt, "ByteString({})", v),
+                Some(s) => write!(fmt, "s\"{}\"", s),
+                None    => write!(fmt, "s{}", v),
             }
         }
     }
