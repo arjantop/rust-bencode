@@ -563,11 +563,11 @@ impl<T: FromBencode> FromBencode for HashMap<String, T> {
 }
 
 pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
-    from_vec(buf.to_vec())
+    from_iter(buf.iter().map(|b| *b))
 }
 
 pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
-    from_iter(buf.into_iter())
+    from_buffer(buf.as_slice())
 }
 
 pub fn from_iter<T: Iterator<u8>>(iter: T) -> Result<Bencode, Error> {
