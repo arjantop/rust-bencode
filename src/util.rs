@@ -22,8 +22,10 @@ impl ByteString {
         ByteString(s)
     }
 
-    pub fn as_slice<'a>(&'a self) -> &'a [u8] {
-        self.as_slice()
+    pub fn as_slice(&self) -> &[u8] {
+      match self {
+        &ByteString(ref v)  => v.as_slice()
+      }
     }
 
     pub fn unwrap(self) -> Vec<u8> {
