@@ -4,7 +4,8 @@ use std::fmt;
 use serialize;
 use serialize::{Encodable, Decodable, Decoder};
 
-use super::{DecoderError, StringEncoding};
+use super::DecoderError;
+use super::DecoderError::StringEncoding;
 
 #[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub struct ByteString(Vec<u8>);

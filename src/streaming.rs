@@ -1,3 +1,7 @@
+use self::BencodePosition::{ListPosition, KeyPosition, ValuePosition};
+use self::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
+                         DictStart, DictKey, DictEnd, ParseError};
+
 #[deriving(Show, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
