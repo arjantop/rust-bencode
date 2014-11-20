@@ -1205,8 +1205,9 @@ mod tests {
     use std::collections::HashMap;
 
     use streaming::Error;
-    use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
-                    ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use streaming::BencodeEvent;
+    use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart,
+                                  ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
     use super::{Bencode, ToBencode};
     use super::{Parser, Encoder, Decoder, DecoderResult};
