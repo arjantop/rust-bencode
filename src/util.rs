@@ -70,7 +70,7 @@ mod test {
 
     #[test]
     fn test_encoding_bytestring_with_invalid_utf8() {
-        let bs = ByteString::from_slice([45, 18, 128]);
+        let bs = ByteString::from_slice(&[45, 18, 128]);
         let encoded = match Encoder::buffer_encode(&bs) {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
@@ -84,6 +84,6 @@ mod test {
         let bencode = from_vec(encoded).unwrap();
         let mut decoder = Decoder::new(&bencode);
         let result: Result<ByteString, _> = Decodable::decode(&mut decoder);
-        assert_eq!(Ok(ByteString::from_slice([45, 18, 128])), result);
+        assert_eq!(Ok(ByteString::from_slice(&[45, 18, 128])), result);
     }
 }

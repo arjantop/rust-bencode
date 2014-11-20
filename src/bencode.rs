@@ -1813,61 +1813,61 @@ mod tests {
 
     #[test]
     fn decodes_empty_input() {
-        assert_decoded_eq([], Ok(Bencode::Empty));
+        assert_decoded_eq(&[], Ok(Bencode::Empty));
     }
 
     #[test]
     fn decodes_number() {
-        assert_decoded_eq([NumberValue(25)], Ok(Bencode::Number(25)));
+        assert_decoded_eq(&[NumberValue(25)], Ok(Bencode::Number(25)));
     }
 
     #[test]
     fn decodes_bytestring() {
-        assert_decoded_eq([ByteStringValue(bytes("foo"))], Ok(Bencode::ByteString(bytes("foo"))));
+        assert_decoded_eq(&[ByteStringValue(bytes("foo"))], Ok(Bencode::ByteString(bytes("foo"))));
     }
 
     #[test]
     fn decodes_empty_list() {
-        assert_decoded_eq([ListStart, ListEnd], Ok(Bencode::List(vec![])));
+        assert_decoded_eq(&[ListStart, ListEnd], Ok(Bencode::List(vec![])));
     }
 
     #[test]
     fn decodes_list_with_elements() {
-        assert_decoded_eq([ListStart,
-                           NumberValue(1),
-                           ListEnd], Ok(Bencode::List(vec![Bencode::Number(1)])));
-        assert_decoded_eq([ListStart,
-                           ByteStringValue(bytes("str")),
-                           NumberValue(11),
-                           ListEnd], Ok(Bencode::List(vec![Bencode::ByteString(bytes("str")),
+        assert_decoded_eq(&[ListStart,
+                            NumberValue(1),
+                            ListEnd], Ok(Bencode::List(vec![Bencode::Number(1)])));
+        assert_decoded_eq(&[ListStart,
+                            ByteStringValue(bytes("str")),
+                            NumberValue(11),
+                            ListEnd], Ok(Bencode::List(vec![Bencode::ByteString(bytes("str")),
                                                Bencode::Number(11)])));
     }
 
     #[test]
     fn decodes_nested_list() {
-        assert_decoded_eq([ListStart,
-                           ListStart,
-                           NumberValue(13),
-                           ListEnd,
-                           ByteStringValue(bytes("rust")),
-                           ListEnd],
-                           Ok(Bencode::List(vec![Bencode::List(vec![Bencode::Number(13)]),
-                                     Bencode::ByteString(bytes("rust"))])));
+        assert_decoded_eq(&[ListStart,
+                            ListStart,
+                            NumberValue(13),
+                            ListEnd,
+                            ByteStringValue(bytes("rust")),
+                            ListEnd],
+                            Ok(Bencode::List(vec![Bencode::List(vec![Bencode::Number(13)]),
+                                      Bencode::ByteString(bytes("rust"))])));
     }
 
     #[test]
     fn decodes_empty_dict() {
-        assert_decoded_eq([DictStart, DictEnd], Ok(Bencode::Dict(TreeMap::new())));
+        assert_decoded_eq(&[DictStart, DictEnd], Ok(Bencode::Dict(TreeMap::new())));
     }
 
     #[test]
     fn decodes_dict_with_value() {
         let mut map = TreeMap::new();
         map.insert(util::ByteString::from_str("foo"), Bencode::ByteString(bytes("rust")));
-        assert_decoded_eq([DictStart,
-                           DictKey(bytes("foo")),
-                           ByteStringValue(bytes("rust")),
-                           DictEnd], Ok(Bencode::Dict(map)));
+        assert_decoded_eq(&[DictStart,
+                            DictKey(bytes("foo")),
+                            ByteStringValue(bytes("rust")),
+                            DictEnd], Ok(Bencode::Dict(map)));
     }
 
     #[test]
@@ -1876,16 +1876,16 @@ mod tests {
         map.insert(util::ByteString::from_str("num"), Bencode::Number(9));
         map.insert(util::ByteString::from_str("str"), Bencode::ByteString(bytes("abc")));
         map.insert(util::ByteString::from_str("list"), Bencode::List(vec![Bencode::Number(99)]));
-        assert_decoded_eq([DictStart,
-                           DictKey(bytes("num")),
-                           NumberValue(9),
-                           DictKey(bytes("str")),
-                           ByteStringValue(bytes("abc")),
-                           DictKey(bytes("list")),
-                           ListStart,
-                           NumberValue(99),
-                           ListEnd,
-                           DictEnd], Ok(Bencode::Dict(map)));
+        assert_decoded_eq(&[DictStart,
+                            DictKey(bytes("num")),
+                            NumberValue(9),
+                            DictKey(bytes("str")),
+                            ByteStringValue(bytes("abc")),
+                            DictKey(bytes("list")),
+                            ListStart,
+                            NumberValue(99),
+                            ListEnd,
+                            DictEnd], Ok(Bencode::Dict(map)));
     }
 
     #[test]
@@ -1895,32 +1895,32 @@ mod tests {
         let mut outer = TreeMap::new();
         outer.insert(util::ByteString::from_str("dict"), Bencode::Dict(inner));
         outer.insert(util::ByteString::from_str("outer"), Bencode::Number(1));
-        assert_decoded_eq([DictStart,
-                           DictKey(bytes("outer")),
-                           NumberValue(1),
-                           DictKey(bytes("dict")),
-                           DictStart,
-                           DictKey(bytes("inner")),
-                           NumberValue(2),
-                           DictEnd,
-                           DictEnd], Ok(Bencode::Dict(outer)));
+        assert_decoded_eq(&[DictStart,
+                            DictKey(bytes("outer")),
+                            NumberValue(1),
+                            DictKey(bytes("dict")),
+                            DictStart,
+                            DictKey(bytes("inner")),
+                            NumberValue(2),
+                            DictEnd,
+                            DictEnd], Ok(Bencode::Dict(outer)));
     }
 
     #[test]
     fn decode_error_on_parse_error() {
         let err = Error{ pos: 1, msg: "error msg".to_string() };
         let perr = ParseError(err.clone());
-        assert_decoded_eq([perr.clone()], Err(err.clone()));
-        assert_decoded_eq([NumberValue(1), perr.clone()], Err(err.clone()));
-        assert_decoded_eq([ListStart,
+        assert_decoded_eq(&[perr.clone()], Err(err.clone()));
+        assert_decoded_eq(&[NumberValue(1), perr.clone()], Err(err.clone()));
+        assert_decoded_eq(&[ListStart,
                            perr.clone()], Err(err.clone()));
-        assert_decoded_eq([ListStart,
+        assert_decoded_eq(&[ListStart,
                            ByteStringValue(bytes("foo")),
                            perr.clone()], Err(err.clone()));
-        assert_decoded_eq([DictStart,
-                           perr.clone()], Err(err.clone()));
-        assert_decoded_eq([DictStart,
-                           DictKey(bytes("foo")),
+        assert_decoded_eq(&[DictStart,
+                            perr.clone()], Err(err.clone()));
+        assert_decoded_eq(&[DictStart,
+                            DictKey(bytes("foo")),
                            perr.clone()], Err(err.clone()));
     }
 }
