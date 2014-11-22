@@ -1,3 +1,7 @@
+use self::BencodePosition::{ListPosition, KeyPosition, ValuePosition};
+use self::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
+                         DictStart, DictKey, DictEnd, ParseError};
+
 #[deriving(Show, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
@@ -255,8 +259,9 @@ mod test {
     use std::str::raw;
 
     use super::{StreamingParser, Error};
-    use super::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
-                    ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use super::BencodeEvent;
+    use super::BencodeEvent::{NumberValue, ByteStringValue, ListStart,
+                              ListEnd, DictStart, DictKey, DictEnd, ParseError};
     use super::alphanum_to_str;
 
     fn bytes(s: &str) -> Vec<u8> {

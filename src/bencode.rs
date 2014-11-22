@@ -207,8 +207,11 @@ use std::collections::TreeMap;
 use std::collections::HashMap;
 
 use streaming::{StreamingParser, Error};
-use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
-                ListEnd, DictStart, DictKey, DictEnd, ParseError};
+use streaming::BencodeEvent;
+use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
+                              DictStart, DictKey, DictEnd, ParseError};
+use self::Bencode::{Empty, Number, ByteString, List, Dict};
+use self::DecoderError::{Message, Unimplemented, Expecting, StringEncoding};
 
 pub mod streaming;
 pub mod util;
@@ -1202,8 +1205,9 @@ mod tests {
     use std::collections::HashMap;
 
     use streaming::Error;
-    use streaming::{BencodeEvent, NumberValue, ByteStringValue, ListStart,
-                    ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use streaming::BencodeEvent;
+    use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart,
+                                  ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
     use super::{Bencode, ToBencode};
     use super::{Parser, Encoder, Decoder, DecoderResult};
