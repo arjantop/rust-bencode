@@ -256,7 +256,7 @@ fn alphanum_to_str(ch: char) -> String {
 
 #[cfg(test)]
 mod test {
-    use std::str::raw;
+    use std::str;
 
     use super::{StreamingParser, Error};
     use super::BencodeEvent;
@@ -269,7 +269,7 @@ mod test {
     }
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
-        let mut parser = StreamingParser::new(encoded.bytes());
+        let parser = StreamingParser::new(encoded.bytes());
         let result = parser.collect::<Vec<_>>();
         assert_eq!(expected, result.as_slice());
     }
@@ -282,7 +282,7 @@ mod test {
                 _ => {}
             };
             let msg = format!("Expecting 'i or 0-9 or l or d or e' but got '{}'", alphanum_to_str(n as char));
-            assert_stream_eq(unsafe { raw::from_utf8(&[n]) },
+            assert_stream_eq(unsafe { str::from_utf8_unchecked(&[n]) },
                             &[ParseError(Error{
                                  pos: 0,
                                  msg: msg })]);

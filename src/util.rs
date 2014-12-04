@@ -1,5 +1,4 @@
-use std::str::raw;
-use std::fmt;
+use std::{str, fmt};
 
 use serialize;
 use serialize::{Encodable, Decodable, Decoder};
@@ -47,7 +46,7 @@ impl fmt::Show for ByteString {
 impl<E, S: serialize::Encoder<E>> Encodable<S, E> for ByteString {
     fn encode(&self, e: &mut S) -> Result<(), E> {
         let &ByteString(ref key) = self;
-        e.emit_str(unsafe { raw::from_utf8(key.as_slice()) })
+        e.emit_str(unsafe { str::from_utf8_unchecked(key.as_slice()) })
     }
 }
 

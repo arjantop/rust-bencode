@@ -160,7 +160,7 @@
   extern crate serialize;
   extern crate bencode;
 
-  use bencode::streaming;
+  use bencode::streaming::BencodeEvent;
   use bencode::streaming::StreamingParser;
   use serialize::Encodable;
 
@@ -180,9 +180,9 @@
       let mut streaming = StreamingParser::new(enc.into_iter());
       for event in streaming {
           match event {
-              streaming::DictStart => println!("dict start"),
-              streaming::DictEnd => println!("dict end"),
-              streaming::NumberValue(n) => println!("number = {}", n),
+              BencodeEvent::DictStart => println!("dict start"),
+              BencodeEvent::DictEnd => println!("dict end"),
+              BencodeEvent::NumberValue(n) => println!("number = {}", n),
               // ...
               _ => println!("Unhandled event: {}", event)
           }
@@ -197,7 +197,6 @@ use std::io;
 use std::io::{IoResult, IoError};
 use std::fmt;
 use std::str;
-use std::str::raw;
 use std::vec::Vec;
 use std::num::FromStrRadix;
 
@@ -269,7 +268,7 @@ impl Bencode {
     pub fn to_bytes(&self) -> io::IoResult<Vec<u8>> {
         let mut writer = io::MemWriter::new();
         match self.to_writer(&mut writer) {
-            Ok(_) => Ok(writer.unwrap()),
+            Ok(_) => Ok(writer.into_inner()),
             Err(err) => Err(err)
         }
     }
@@ -280,7 +279,7 @@ impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
         match self {
             &Bencode::Empty => Ok(()),
             &Bencode::Number(v) => e.emit_i64(v),
-            &Bencode::ByteString(ref v) => e.emit_str(unsafe { raw::from_utf8(v.as_slice()) }),
+            &Bencode::ByteString(ref v) => e.emit_str(unsafe { str::from_utf8_unchecked(v.as_slice()) }),
             &Bencode::List(ref v) => v.encode(e),
             &Bencode::Dict(ref v) => v.encode(e)
         }
@@ -592,7 +591,7 @@ macro_rules! tryenc(($e:expr) => (
 pub type EncoderResult<T> = IoResult<T>;
 
 pub struct Encoder<'a> {
-    writer: &'a mut io::Writer + 'a,
+    writer: &'a mut (io::Writer + 'a),
     writers: Vec<io::MemWriter>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
@@ -625,7 +624,7 @@ impl<'a> Encoder<'a> {
                 return Err(encoder.error.unwrap_err())
             }
         }
-        Ok(writer.unwrap())
+        Ok(writer.into_inner())
     }
 
     fn get_writer<'a>(&'a mut self) -> &'a mut io::Writer {
@@ -754,7 +753,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
         if !self.is_none {
-            dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data.unwrap());
+            dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data.into_inner());
         }
         self.is_none = false;
         Ok(())
@@ -831,7 +830,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
-        dict.insert(key.unwrap(), data.unwrap());
+        dict.insert(key.unwrap(), data.into_inner());
         self.is_none = false;
         Ok(())
     }
@@ -1951,7 +1950,7 @@ mod bench {
                 let mut enc = Encoder::new(&mut w);
                 let _ = v.encode(&mut enc);
             }
-            w.unwrap()
+            w.into_inner()
         });
         bh.bytes = v.len() as u64 * 4;
     }
