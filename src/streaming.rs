@@ -20,7 +20,7 @@ pub struct Error {
     pub msg: String,
 }
 
-#[deriving(Show, Eq, PartialEq, Clone)]
+#[deriving(Show, Eq, PartialEq, Clone, Copy)]
 pub enum BencodePosition {
     ListPosition,
     KeyPosition,
@@ -41,13 +41,13 @@ macro_rules! expect(($slf:expr, $ch:pat, $ex:expr) => (
         Some($ch) => $slf.next_byte(),
         _ => return $slf.error($ex)
     }
-))
+));
 
 macro_rules! check_nesting(($slf:expr) => (
     if $slf.decoded > 0 && $slf.stack.len() == 0 {
         return $slf.error_msg("Only one value allowed outside of containers".to_string())
     }
-))
+));
 
 impl<T: Iterator<u8>> StreamingParser<T> {
     pub fn new(mut reader: T) -> StreamingParser<T> {
@@ -256,6 +256,7 @@ fn alphanum_to_str(ch: char) -> String {
 
 #[cfg(test)]
 mod test {
+    use std::iter::repeat;
     use std::str;
 
     use super::{StreamingParser, Error};
@@ -348,7 +349,7 @@ mod test {
 
     #[test]
     fn parses_long_bytestring() {
-        let long = "baz".repeat(10);
+        let long = repeat("baz").take(10).collect::<String>();
         assert_stream_eq(format!("{}:{}", long.len(), long).as_slice(), &[ByteStringValue(bytes(long.as_slice()))]);
     }
 
