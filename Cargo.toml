@@ -2,7 +2,13 @@
 
 name = "bencode"
 version = "0.1.0"
-authors = ["arjan.top@gmail.com"]
+authors = ["Arjan Topolovec <arjan.top@gmail.com>"]
+license = "MIT/Apache-2.0"
+homepage = "https://github.com/arjantop/rust-bencode"
+repository = "https://github.com/arjantop/rust-bencode"
+description = "Bencode library for easy encoding/decoding"
+documentation = "http://www.rust-ci.org/arjantop/rust-bencode/doc/bencode/"
+keywords = ["bencode", "encoding", "decoding"]
 
 [lib]
 
