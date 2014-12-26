@@ -13,3 +13,7 @@ keywords = ["bencode", "encoding", "decoding"]
 [lib]
 
 name = "bencode"
+
+[dependencies]
+
+rustc-serialize = "~0.1.0"
