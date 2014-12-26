@@ -19,14 +19,14 @@
   ## Using `Encodable`
 
   ```rust
-  extern crate serialize;
+  extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
-  use serialize::Encodable;
+  use rustc_serialize::Encodable;
 
   use bencode::Encoder;
 
-  #[deriving(Encodable)]
+  #[deriving(RustcEncodable)]
   struct MyStruct {
       string: String,
       id: uint,
@@ -78,14 +78,14 @@
   ## Using `Decodable`
 
   ```rust
-  extern crate serialize;
+  extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
-  use serialize::{Encodable, Decodable};
+  use rustc_serialize::{Encodable, Decodable};
 
   use bencode::{Encoder, Decoder};
 
-  #[deriving(Encodable, Decodable, PartialEq)]
+  #[deriving(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
       a: int,
       b: String,
@@ -156,16 +156,16 @@
   ## Using Streaming Parser
 
   ```rust
-  extern crate serialize;
+  extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
   use bencode::streaming::BencodeEvent;
   use bencode::streaming::StreamingParser;
-  use serialize::Encodable;
+  use rustc_serialize::Encodable;
 
   use bencode::Encoder;
 
-  #[deriving(Encodable, Decodable, PartialEq)]
+  #[deriving(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
       a: int,
       b: String,
@@ -190,7 +190,7 @@
   ```
 */
 
-extern crate serialize;
+extern crate "rustc-serialize" as rustc_serialize;
 
 use std::io;
 use std::io::{IoResult, IoError};
@@ -199,7 +199,8 @@ use std::str;
 use std::vec::Vec;
 use std::num::FromStrRadix;
 
-use serialize::{Encodable};
+use rustc_serialize as serialize;
+use rustc_serialize::{Encodable};
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -1198,9 +1199,10 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use serialize::{Encodable, Decodable};
     use std::collections::BTreeMap;
     use std::collections::HashMap;
+
+    use rustc_serialize::{Encodable, Decodable};
 
     use streaming::Error;
     use streaming::BencodeEvent;
@@ -1575,20 +1577,20 @@ mod tests {
                        identity_nested_vec,
                        vec![vec![1i], vec![2i, 3i], vec![]] -> bytes("lli1eeli2ei3eelee"));
 
-    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
         a: uint,
         b: Vec<String>,
     }
 
-    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct InnerStruct {
         field_one: (),
         list: Vec<uint>,
         abc: String
     }
 
-    #[deriving(Eq, PartialEq, Show, Encodable, Decodable)]
+    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct OuterStruct {
         inner: Vec<InnerStruct>,
         is_true: bool
@@ -1672,7 +1674,7 @@ mod tests {
 
     #[test]
     fn encodes_struct_fields_in_sorted_order() {
-        #[deriving(Encodable)]
+        #[deriving(RustcEncodable)]
         struct OrderedStruct {
             z: int,
             a: int,
@@ -1688,14 +1690,14 @@ mod tests {
         assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
-    #[deriving(Encodable, Decodable, Eq, PartialEq, Show, Clone)]
+    #[deriving(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
     struct OptionalStruct {
         a: Option<int>,
         b: int,
         c: Option<Vec<Option<bool>>>,
     }
 
-    #[deriving(Encodable, Decodable, Eq, PartialEq, Show)]
+    #[deriving(RustcEncodable, RustcDecodable, Eq, PartialEq, Show)]
     struct OptionalStructOuter {
         a: Option<OptionalStruct>,
         b: Option<int>,
@@ -1935,7 +1937,7 @@ mod bench {
 
     use std::io;
 
-    use serialize::{Encodable, Decodable};
+    use rustc_serialize::{Encodable, Decodable};
 
     use streaming::StreamingParser;
     use super::{Encoder, Decoder, Parser, DecoderResult};

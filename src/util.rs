@@ -1,7 +1,7 @@
 use std::{str, fmt};
 
-use serialize;
-use serialize::{Encodable, Decodable, Decoder};
+use rustc_serialize as serialize;
+use rustc_serialize::{Encodable, Decodable, Decoder};
 
 use super::DecoderError;
 use super::DecoderError::StringEncoding;
@@ -63,7 +63,7 @@ impl<'a> Decodable<super::Decoder<'a>, DecoderError> for ByteString {
 
 #[cfg(test)]
 mod test {
-    use serialize::Decodable;
+    use rustc_serialize::Decodable;
 
     use super::ByteString;
     use super::super::{Encoder, from_vec, Decoder};
