@@ -1053,13 +1053,13 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
             let b = self.keys.pop().unwrap().unwrap();
             match String::from_utf8(b) {
                 Ok(s) => Ok(s),
-                Err((v, _)) => Err(StringEncoding(v))
+                Err(err) => Err(StringEncoding(err.into_bytes()))
             }
         } else {
             let bencode = self.stack.pop();
             match bencode {
                 Some(&Bencode::ByteString(ref v)) => {
-                    String::from_utf8(v.clone()).map_err(|(b, _)| StringEncoding(b))
+                    String::from_utf8(v.clone()).map_err(|err| StringEncoding(err.into_bytes()))
                 }
                 _ => Err(self.error(format!("Error decoding value as str: {}", bencode).as_slice()))
             }
@@ -1944,7 +1944,7 @@ mod bench {
 
     #[bench]
     fn encode_large_vec_of_uint(bh: &mut Bencher) {
-        let v = Vec::from_fn(100, |n| n);
+        let v: Vec<u32> = range(0, 100).collect();
         bh.iter(|| {
             let mut w = io::MemWriter::with_capacity(v.len() * 10);
             {
@@ -1959,7 +1959,7 @@ mod bench {
 
     #[bench]
     fn decode_large_vec_of_uint(bh: &mut Bencher) {
-        let v = Vec::from_fn(100, |n| n);
+        let v: Vec<u32> = range(0, 100).collect();
         let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().into_iter());
