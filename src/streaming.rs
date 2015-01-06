@@ -2,7 +2,7 @@ use self::BencodePosition::{ListPosition, KeyPosition, ValuePosition};
 use self::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
                          DictStart, DictKey, DictEnd, ParseError};
 
-#[deriving(Show, Eq, PartialEq, Clone)]
+#[derive(Show, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
     ByteStringValue(Vec<u8>),
@@ -14,13 +14,13 @@ pub enum BencodeEvent {
     ParseError(Error),
 }
 
-#[deriving(Show, Eq, PartialEq, Clone)]
+#[derive(Show, Eq, PartialEq, Clone)]
 pub struct Error {
     pub pos: u32,
     pub msg: String,
 }
 
-#[deriving(Show, Eq, PartialEq, Clone, Copy)]
+#[derive(Show, Eq, PartialEq, Clone, Copy)]
 pub enum BencodePosition {
     ListPosition,
     KeyPosition,
@@ -49,7 +49,7 @@ macro_rules! check_nesting(($slf:expr) => (
     }
 ));
 
-impl<T: Iterator<u8>> StreamingParser<T> {
+impl<T: Iterator<Item=u8>> StreamingParser<T> {
     pub fn new(mut reader: T) -> StreamingParser<T> {
         let next = reader.next();
         StreamingParser {
@@ -217,7 +217,8 @@ impl<T: Iterator<u8>> StreamingParser<T> {
     }
 }
 
-impl<T: Iterator<u8>> Iterator<BencodeEvent> for StreamingParser<T> {
+impl<T: Iterator<Item=u8>> Iterator for StreamingParser<T> {
+    type Item = BencodeEvent;
     fn next(&mut self) -> Option<BencodeEvent> {
         if self.end || self.empty_input() {
             return None

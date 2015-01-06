@@ -19,6 +19,7 @@
   ## Using `Encodable`
 
   ```rust
+  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -26,7 +27,7 @@
 
   use bencode::Encoder;
 
-  #[deriving(RustcEncodable)]
+  #[derive(RustcEncodable)]
   struct MyStruct {
       string: String,
       id: uint,
@@ -78,6 +79,7 @@
   ## Using `Decodable`
 
   ```rust
+  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -85,7 +87,7 @@
 
   use bencode::{Encoder, Decoder};
 
-  #[deriving(RustcEncodable, RustcDecodable, PartialEq)]
+  #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
       a: int,
       b: String,
@@ -114,7 +116,7 @@
   use bencode::{FromBencode, ToBencode, Bencode};
   use bencode::util::ByteString;
 
-  #[deriving(PartialEq)]
+  #[derive(PartialEq)]
   struct MyStruct {
       a: int
   }
@@ -156,6 +158,7 @@
   ## Using Streaming Parser
 
   ```rust
+  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -165,7 +168,7 @@
 
   use bencode::Encoder;
 
-  #[deriving(RustcEncodable, RustcDecodable, PartialEq)]
+  #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
       a: int,
       b: String,
@@ -189,6 +192,10 @@
   }
   ```
 */
+
+#![feature(associated_types)]
+// FIXME: new orphan rules break serialize
+#![feature(old_orphan_check)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 
@@ -223,7 +230,7 @@ fn fmt_bytestring(s: &[u8], fmt: &mut fmt::Formatter) -> fmt::Result {
   }
 }
 
-#[deriving(PartialEq, Clone)]
+#[derive(PartialEq, Clone)]
 pub enum Bencode {
     Empty,
     Number(i64),
@@ -572,7 +579,7 @@ pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
     from_buffer(buf.as_slice())
 }
 
-pub fn from_iter<T: Iterator<u8>>(iter: T) -> Result<Bencode, Error> {
+pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
     let streaming_parser = StreamingParser::new(iter);
     let mut parser = Parser::new(streaming_parser);
     parser.parse()
@@ -841,7 +848,7 @@ pub struct Parser<T> {
     depth: u32,
 }
 
-impl<T: Iterator<BencodeEvent>> Parser<T> {
+impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
     pub fn new(reader: T) -> Parser<T> {
         Parser {
             reader: reader,
@@ -930,7 +937,7 @@ macro_rules! dec_expect_value(($slf:expr) => {
 
 static EMPTY: Bencode = Empty;
 
-#[deriving(Eq, PartialEq, Clone, Show)]
+#[derive(Eq, PartialEq, Clone, Show)]
 pub enum DecoderError {
     Message(String),
     StringEncoding(Vec<u8>),
@@ -1577,20 +1584,20 @@ mod tests {
                        identity_nested_vec,
                        vec![vec![1i], vec![2i, 3i], vec![]] -> bytes("lli1eeli2ei3eelee"));
 
-    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
         a: uint,
         b: Vec<String>,
     }
 
-    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct InnerStruct {
         field_one: (),
         list: Vec<uint>,
         abc: String
     }
 
-    #[deriving(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct OuterStruct {
         inner: Vec<InnerStruct>,
         is_true: bool
@@ -1674,7 +1681,7 @@ mod tests {
 
     #[test]
     fn encodes_struct_fields_in_sorted_order() {
-        #[deriving(RustcEncodable)]
+        #[derive(RustcEncodable)]
         struct OrderedStruct {
             z: int,
             a: int,
@@ -1690,14 +1697,14 @@ mod tests {
         assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
-    #[deriving(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
+    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
     struct OptionalStruct {
         a: Option<int>,
         b: int,
         c: Option<Vec<Option<bool>>>,
     }
 
-    #[deriving(RustcEncodable, RustcDecodable, Eq, PartialEq, Show)]
+    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show)]
     struct OptionalStructOuter {
         a: Option<OptionalStruct>,
         b: Option<int>,
