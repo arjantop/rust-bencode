@@ -6,7 +6,7 @@ use rustc_serialize::{Encodable, Decodable, Decoder};
 use super::DecoderError;
 use super::DecoderError::StringEncoding;
 
-#[deriving(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub struct ByteString(Vec<u8>);
 
 impl ByteString {
