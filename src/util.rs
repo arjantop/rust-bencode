@@ -34,7 +34,7 @@ impl ByteString {
     }
 }
 
-impl fmt::Show for ByteString {
+impl fmt::String for ByteString {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use fmt_bytestring;
         match self {
@@ -43,23 +43,24 @@ impl fmt::Show for ByteString {
     }
 }
 
-impl<E, S: serialize::Encoder<E>> Encodable<S, E> for ByteString {
-    fn encode(&self, e: &mut S) -> Result<(), E> {
+impl Encodable for ByteString {
+    fn encode<S: serialize::Encoder>(&self, e: &mut S) -> Result<(), S::Error> {
         let &ByteString(ref key) = self;
         e.emit_str(unsafe { str::from_utf8_unchecked(key.as_slice()) })
     }
 }
 
-impl<'a> Decodable<super::Decoder<'a>, DecoderError> for ByteString {
-    fn decode(d: &mut super::Decoder<'a>) -> Result<ByteString, DecoderError> {
-        d.read_str().map(|s| ByteString(s.into_bytes())).or_else(|e| {
-            match e {
-                StringEncoding(v) => Ok(ByteString(v)),
-                err => Err(err)
-            }
-        })
-    }
-}
+// FIXME: fix the error
+//impl<'a> Decodable for ByteString {
+    //fn decode(d: &mut super::Decoder<'a>) -> Result<ByteString, DecoderError> {
+        //d.read_str().map(|s| ByteString(s.into_bytes())).or_else(|e| {
+            //match e {
+                //StringEncoding(v) => Ok(ByteString(v)),
+                //err => Err(err)
+            //}
+        //})
+    //}
+//}
 
 #[cfg(test)]
 mod test {

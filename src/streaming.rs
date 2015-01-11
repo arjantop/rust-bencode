@@ -68,7 +68,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
         self.end = self.curr.is_none();
     }
 
-    fn next_bytes(&mut self, len: uint) -> Result<Vec<u8>, Error> {
+    fn next_bytes(&mut self, len: usize) -> Result<Vec<u8>, Error> {
         let mut bytes = Vec::with_capacity(len);
         for _ in range(0, len) {
             match self.curr {
@@ -88,7 +88,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
         self.curr.map(|v| v as char)
     }
 
-    fn error<T>(&mut self, expected: String) -> Result<T, Error> {
+    fn error<R>(&mut self, expected: String) -> Result<R, Error> {
         let got = self.curr_char();
         let got_char = match got {
             Some(x) => alphanum_to_str(x),
@@ -97,7 +97,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
         self.error_msg(format!("Expecting '{}' but got '{}'", expected, got_char))
     }
 
-    fn error_msg<T>(&mut self, msg: String) -> Result<T, Error> {
+    fn error_msg<R>(&mut self, msg: String) -> Result<R, Error> {
         Err(Error {
             pos: self.pos,
             msg: msg
@@ -147,7 +147,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
     fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
         let len = try!(self.parse_number_unsigned());
         expect!(self, ':', ":".to_string());
-        let bytes = try!(self.next_bytes(len as uint));
+        let bytes = try!(self.next_bytes(len as usize));
         Ok(bytes)
     }
 

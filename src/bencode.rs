@@ -9,7 +9,6 @@
 #![crate_name = "bencode"]
 #![crate_type = "rlib"]
 #![crate_type = "dylib"]
-#![feature(macro_rules)]
 
 /*!
   Bencode parsing and serialization
@@ -30,7 +29,7 @@
   #[derive(RustcEncodable)]
   struct MyStruct {
       string: String,
-      id: uint,
+      id: usize,
   }
 
   fn main() {
@@ -193,7 +192,6 @@
   ```
 */
 
-#![feature(associated_types)]
 // FIXME: new orphan rules break serialize
 #![feature(old_orphan_check)]
 
@@ -226,7 +224,7 @@ pub mod util;
 fn fmt_bytestring(s: &[u8], fmt: &mut fmt::Formatter) -> fmt::Result {
   match str::from_utf8(s) {
     Ok(s) => write!(fmt, "s\"{}\"", s),
-    Err(..) => write!(fmt, "s{}", s),
+    Err(..) => write!(fmt, "s{:?}", s),
   }
 }
 
@@ -241,24 +239,46 @@ pub enum Bencode {
 
 impl fmt::Show for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Bencode::Empty => { Ok(()) }
-            &Bencode::Number(v) => write!(fmt, "{}", v),
-            &Bencode::ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
-            &Bencode::List(ref v) => write!(fmt, "{}", v),
-            &Bencode::Dict(ref v) => {
-                try!(write!(fmt, "{{"));
-                let mut first = true;
-                for (key, value) in v.iter() {
-                    if first {
-                        first = false;
-                    } else {
-                        try!(write!(fmt, ", "));
-                    }
-                    try!(write!(fmt, "{}: {}", *key, *value));
+        format(fmt, self)
+    }
+}
+
+impl fmt::String for Bencode {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        format(fmt, self)
+    }
+}
+
+fn format(fmt: &mut fmt::Formatter, v: &Bencode) -> fmt::Result {
+    match *v {
+        Bencode::Empty => { Ok(()) }
+        Bencode::Number(v) => write!(fmt, "{}", v),
+        Bencode::ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
+        Bencode::List(ref v) => {
+            try!(write!(fmt, "["));
+            let mut first = true;
+            for value in v.iter() {
+                if first {
+                    first = false;
+                } else {
+                    try!(write!(fmt, ", "));
                 }
-                write!(fmt, "}}")
+                try!(write!(fmt, "{}", *value));
             }
+            write!(fmt, "]")
+        }
+        Bencode::Dict(ref v) => {
+            try!(write!(fmt, "{{"));
+            let mut first = true;
+            for (key, value) in v.iter() {
+                if first {
+                    first = false;
+                } else {
+                    try!(write!(fmt, ", "));
+                }
+                try!(write!(fmt, "{}: {}", *key, *value));
+            }
+            write!(fmt, "}}")
         }
     }
 }
@@ -281,8 +301,8 @@ impl Bencode {
     }
 }
 
-impl<E, S: serialize::Encoder<E>> Encodable<S, E> for Bencode {
-    fn encode(&self, e: &mut S) -> Result<(), E> {
+impl Encodable for Bencode {
+    fn encode<S: serialize::Encoder>(&self, e: &mut S) -> Result<(), S::Error> {
         match self {
             &Bencode::Empty => Ok(()),
             &Bencode::Number(v) => e.emit_i64(v),
@@ -361,8 +381,8 @@ macro_rules! derive_num_from_bencode(($t:ty) => (
     }
 ));
 
-derive_num_to_bencode!(int);
-derive_num_from_bencode!(int);
+derive_num_to_bencode!(isize);
+derive_num_from_bencode!(isize);
 
 derive_num_to_bencode!(i8);
 derive_num_from_bencode!(i8);
@@ -376,8 +396,8 @@ derive_num_from_bencode!(i32);
 derive_num_to_bencode!(i64);
 derive_num_from_bencode!(i64);
 
-derive_num_to_bencode!(uint);
-derive_num_from_bencode!(uint);
+derive_num_to_bencode!(usize);
+derive_num_from_bencode!(usize);
 
 derive_num_to_bencode!(u8);
 derive_num_from_bencode!(u8);
@@ -585,6 +605,18 @@ pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
     parser.parse()
 }
 
+fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
+    let mut w = io::MemWriter::new();
+    {
+        let mut encoder = Encoder::new(&mut w);
+        match t.encode(&mut encoder) {
+            Err(e) => return Err(e),
+            _ => {}
+        }
+    }
+    Ok(w.into_inner())
+}
+
 macro_rules! tryenc(($e:expr) => (
     match $e {
         Ok(e) => e,
@@ -620,20 +652,6 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    pub fn buffer_encode<T: Encodable<Encoder<'a>, IoError>>(val: &T) -> EncoderResult<Vec<u8>> {
-        use std::mem::transmute;
-        let mut writer = io::MemWriter::new();
-        // FIXME: same as json rust-lang/rust#14302
-        unsafe {
-            let mut encoder = Encoder::new(&mut writer);
-            try!(val.encode(transmute(&mut encoder)));
-            if encoder.error.is_err() {
-                return Err(encoder.error.unwrap_err())
-            }
-        }
-        Ok(writer.into_inner())
-    }
-
     fn get_writer(&mut self) -> &mut io::Writer {
         if self.writers.len() == 0 {
             &mut self.writer as &mut io::Writer
@@ -666,10 +684,12 @@ macro_rules! expect_value(($slf:expr) => {
     }
 });
 
-impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
+impl<'a> serialize::Encoder for Encoder<'a> {
+    type Error = IoError;
+
     fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "0:") }
 
-    fn emit_uint(&mut self, v: uint) -> EncoderResult<()> { self.emit_i64(v as i64) }
+    fn emit_usize(&mut self, v: usize) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
     fn emit_u8(&mut self, v: u8) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
@@ -679,7 +699,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
 
     fn emit_u64(&mut self, v: u64) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
-    fn emit_int(&mut self, v: int) -> EncoderResult<()> { self.emit_i64(v as i64) }
+    fn emit_isize(&mut self, v: isize) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
     fn emit_i8(&mut self, v: i8) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
@@ -727,23 +747,23 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         self.error("emit_enum not implemented")
     }
 
-    fn emit_enum_variant<F>(&mut self, _v_name: &str, _v_id: uint, _len: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_enum_variant<F>(&mut self, _v_name: &str, _v_id: usize, _len: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_enum_variant not implemented")
     }
 
-    fn emit_enum_variant_arg<F>(&mut self, _a_idx: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_enum_variant_arg<F>(&mut self, _a_idx: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_enum_variant_arg not implemented")
     }
 
-    fn emit_enum_struct_variant<F>(&mut self, _v_name: &str, _v_id: uint, _len: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_enum_struct_variant<F>(&mut self, _v_name: &str, _v_id: usize, _len: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_enum_struct_variant not implemented")
     }
 
-    fn emit_enum_struct_variant_field<F>(&mut self, _f_name: &str, _f_idx: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_enum_struct_variant_field<F>(&mut self, _f_name: &str, _f_idx: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_enum_struct_variant_field not implemented")
     }
 
-    fn emit_struct<F>(&mut self, _name: &str, _len: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_struct<F>(&mut self, _name: &str, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.stack.push(BTreeMap::new());
         try!(f(self));
@@ -753,7 +773,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         Ok(())
     }
 
-    fn emit_struct_field<F>(&mut self, f_name: &str, _f_idx: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_struct_field<F>(&mut self, f_name: &str, _f_idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.writers.push(io::MemWriter::new());
         try!(f(self));
@@ -766,17 +786,17 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         Ok(())
     }
 
-    fn emit_tuple<F>(&mut self, _len: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_tuple<F>(&mut self, _len: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_tuple not implemented")
     }
 
-    fn emit_tuple_arg<F>(&mut self, _idx: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_tuple_arg<F>(&mut self, _idx: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_tuple_arg not implemented")
     }
-    fn emit_tuple_struct<F>(&mut self, _name: &str, _len: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_tuple_struct<F>(&mut self, _name: &str, _len: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_tuple_struct not implemented")
     }
-    fn emit_tuple_struct_arg<F>(&mut self, _f_idx: uint, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_tuple_struct_arg<F>(&mut self, _f_idx: usize, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         self.error("emit_tuple_struct_arg not implemented")
     }
 
@@ -796,7 +816,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         f(self)
     }
 
-    fn emit_seq<F>(&mut self, _len: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_seq<F>(&mut self, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         try!(write!(self.get_writer(), "l"));
         try!(f(self));
@@ -804,14 +824,14 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         write!(self.get_writer(), "e")
     }
 
-    fn emit_seq_elt<F>(&mut self, _idx: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_seq_elt<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         try!(f(self));
         self.is_none = false;
         Ok(())
     }
 
-    fn emit_map<F>(&mut self, _len: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_map<F>(&mut self, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.stack.push(BTreeMap::new());
         try!(f(self));
@@ -821,7 +841,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         Ok(())
     }
 
-    fn emit_map_elt_key<F>(&mut self, _idx: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_map_elt_key<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.writers.push(io::MemWriter::new());
         self.expect_key = true;
@@ -831,7 +851,7 @@ impl<'a> serialize::Encoder<IoError> for Encoder<'a> {
         Ok(())
     }
 
-    fn emit_map_elt_val<F>(&mut self, _idx: uint, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
+    fn emit_map_elt_val<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         try!(f(self));
         let key = self.keys.pop();
@@ -869,7 +889,7 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
             Some(DictStart) => self.parse_dict(current),
             Some(ParseError(err)) => Err(err),
             None => Ok(Empty),
-            x => panic!("[root] Unreachable but got {}", x)
+            x => panic!("[root] Unreachable but got {:?}", x)
         };
         if self.depth == 0 {
             let next = self.reader.next();
@@ -879,7 +899,7 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
                     match next {
                         Some(ParseError(err)) => Err(err),
                         None => res,
-                        x => panic!("Unreachable but got {}", x)
+                        x => panic!("Unreachable but got {:?}", x)
                     }
                 }
             }
@@ -902,7 +922,7 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
                         err@Err(_) => return err
                     }
                 }
-                x => panic!("[list] Unreachable but got {}", x)
+                x => panic!("[list] Unreachable but got {:?}", x)
             }
         }
         self.depth -= 1;
@@ -918,7 +938,7 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => util::ByteString::from_vec(v),
                 Some(ParseError(err)) => return Err(err),
-                x => panic!("[dict] Unreachable but got {}", x)
+                x => panic!("[dict] Unreachable but got {:?}", x)
             };
             current = self.reader.next();
             let value = try!(self.parse_elem(current));
@@ -966,7 +986,7 @@ impl<'a> Decoder<'a> {
         let val = self.stack.pop();
         match val.and_then(|b| FromBencode::from_bencode(b)) {
             Some(v) => Ok(v),
-            None => Err(Message(format!("Error decoding value as '{}': {}", ty, val)))
+            None => Err(Message(format!("Error decoding value as '{}': {:?}", ty, val)))
         }
     }
 
@@ -975,7 +995,9 @@ impl<'a> Decoder<'a> {
     }
 }
 
-impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
+impl<'a> serialize::Decoder for Decoder<'a> {
+    type Error = DecoderError;
+
     fn error(&mut self, err: &str) -> DecoderError {
         Message(err.to_string())
     }
@@ -985,9 +1007,9 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         self.try_read("nil")
     }
 
-    fn read_uint(&mut self) -> DecoderResult<uint> {
+    fn read_usize(&mut self) -> DecoderResult<usize> {
         dec_expect_value!(self);
-        self.try_read("uint")
+        self.try_read("usize")
     }
 
     fn read_u8(&mut self) -> DecoderResult<u8> {
@@ -1010,9 +1032,9 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         self.try_read("u64")
     }
 
-    fn read_int(&mut self) -> DecoderResult<int> {
+    fn read_isize(&mut self) -> DecoderResult<isize> {
         dec_expect_value!(self);
-        self.try_read("int")
+        self.try_read("isize")
     }
 
     fn read_i8(&mut self) -> DecoderResult<i8> {
@@ -1068,7 +1090,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 Some(&Bencode::ByteString(ref v)) => {
                     String::from_utf8(v.clone()).map_err(|err| StringEncoding(err.into_bytes()))
                 }
-                _ => Err(self.error(format!("Error decoding value as str: {}", bencode).as_slice()))
+                _ => Err(self.error(format!("Error decoding value as str: {:?}", bencode).as_slice()))
             }
         }
     }
@@ -1077,30 +1099,30 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         self.unimplemented("read_enum")
     }
 
-    fn read_enum_variant<T, F>(&mut self, _names: &[&str], mut _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, uint) -> DecoderResult<T> {
+    fn read_enum_variant<T, F>(&mut self, _names: &[&str], mut _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, usize) -> DecoderResult<T> {
         self.unimplemented("read_enum_variant")
     }
 
-    fn read_enum_variant_arg<T, F>(&mut self, _idx: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_enum_variant_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_enum_variant_arg")
     }
 
-    fn read_enum_struct_variant<T, F>(&mut self, _names: &[&str], _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, uint) -> DecoderResult<T> {
+    fn read_enum_struct_variant<T, F>(&mut self, _names: &[&str], _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, usize) -> DecoderResult<T> {
         self.unimplemented("read_enum_struct_variant")
     }
 
-    fn read_enum_struct_variant_field<T, F>(&mut self, _name: &str, _idx: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_enum_struct_variant_field<T, F>(&mut self, _name: &str, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_enum_struct_variant_field")
     }
 
-    fn read_struct<T, F>(&mut self, _name: &str, _len: uint, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_struct<T, F>(&mut self, _name: &str, _len: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         dec_expect_value!(self);
         let res = try!(f(self));
         self.stack.pop();
         Ok(res)
     }
 
-    fn read_struct_field<T, F>(&mut self, name: &str, _idx: uint, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_struct_field<T, F>(&mut self, name: &str, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         dec_expect_value!(self);
         let val = match self.stack.last() {
             Some(v) => {
@@ -1111,7 +1133,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                             None => &EMPTY
                         }
                     }
-                    _ => return Err(Expecting("Dict", v.to_string()))
+                    _ => return Err(Expecting("Dict", format!("{:?}", v)))
                 }
             }
             None => return Err(Expecting("Dict", "None".to_string()))
@@ -1120,19 +1142,19 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         f(self)
     }
 
-    fn read_tuple<T, F>(&mut self, _tuple_len: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple<T, F>(&mut self, _tuple_len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_tuple")
     }
 
-    fn read_tuple_arg<T, F>(&mut self, _idx: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_tuple_arg")
     }
 
-    fn read_tuple_struct<T, F>(&mut self, _name: &str, _len: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_struct<T, F>(&mut self, _name: &str, _len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_tuple_struct")
     }
 
-    fn read_tuple_struct_arg<T, F>(&mut self, _idx: uint, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_struct_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         self.unimplemented("read_tuple_struct_arg")
     }
 
@@ -1156,7 +1178,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         }
     }
 
-    fn read_seq<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, uint) -> DecoderResult<T> {
+    fn read_seq<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, usize) -> DecoderResult<T> {
         dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Bencode::List(ref list)) => {
@@ -1165,17 +1187,17 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 }
                 list.len()
             }
-            val => return Err(Expecting("List", val.to_string()))
+            val => return Err(Expecting("List", val.map(|v| v.to_string()).unwrap_or("".to_string())))
         };
         f(self, len)
     }
 
-    fn read_seq_elt<T, F>(&mut self, _idx: uint, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_seq_elt<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         dec_expect_value!(self);
         f(self)
     }
 
-    fn read_map<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, uint) -> DecoderResult<T> {
+    fn read_map<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, usize) -> DecoderResult<T> {
         dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Bencode::Dict(ref m)) => {
@@ -1185,12 +1207,12 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
                 }
                 m.len()
             }
-            val => return Err(Expecting("Dict", val.to_string()))
+            val => return Err(Expecting("Dict", val.map(|v| v.to_string()).unwrap_or("".to_string())))
         };
         f(self, len)
     }
 
-    fn read_map_elt_key<T, F>(&mut self, _idx: uint, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_map_elt_key<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         dec_expect_value!(self);
         self.expect_key = true;
         let res = try!(f(self));
@@ -1198,7 +1220,7 @@ impl<'a> serialize::Decoder<DecoderError> for Decoder<'a> {
         Ok(res)
     }
 
-    fn read_map_elt_val<T, F>(&mut self, _idx: uint, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_map_elt_val<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
         dec_expect_value!(self);
         f(self)
     }
@@ -1420,17 +1442,17 @@ mod tests {
                        -99i64 -> bytes("i-99e"),
                        ::std::i64::MIN -> bytes(format!("i{}e", ::std::i64::MIN).as_slice()));
 
-    gen_complete_test!(encodes_zero_uint,
-                       tobencode_zero_uint,
-                       identity_zero_uint,
+    gen_complete_test!(encodes_zero_usize,
+                       tobencode_zero_usize,
+                       identity_zero_usize,
                        0u -> bytes("i0e"));
 
-    gen_complete_test!(encodes_positive_uint,
-                       tobencode_positive_uint,
-                       identity_positive_uint,
+    gen_complete_test!(encodes_positive_usize,
+                       tobencode_positive_usize,
+                       identity_positive_usize,
                        5u -> bytes("i5e"),
                        99u -> bytes("i99e"),
-                       ::std::uint::MAX / 2 -> bytes(format!("i{}e", ::std::uint::MAX / 2).as_slice()));
+                       ::std::usize::MAX / 2 -> bytes(format!("i{}e", ::std::usize::MAX / 2).as_slice()));
 
     gen_complete_test!(encodes_zero_u8,
                        tobencode_zero_u8,
@@ -1586,14 +1608,14 @@ mod tests {
 
     #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
-        a: uint,
+        a: usize,
         b: Vec<String>,
     }
 
     #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct InnerStruct {
         field_one: (),
-        list: Vec<uint>,
+        list: Vec<usize>,
         abc: String
     }
 
@@ -1950,7 +1972,7 @@ mod bench {
     use super::{Encoder, Decoder, Parser, DecoderResult};
 
     #[bench]
-    fn encode_large_vec_of_uint(bh: &mut Bencher) {
+    fn encode_large_vec_of_usize(bh: &mut Bencher) {
         let v: Vec<u32> = range(0, 100).collect();
         bh.iter(|| {
             let mut w = io::MemWriter::with_capacity(v.len() * 10);
@@ -1965,7 +1987,7 @@ mod bench {
 
 
     #[bench]
-    fn decode_large_vec_of_uint(bh: &mut Bencher) {
+    fn decode_large_vec_of_usize(bh: &mut Bencher) {
         let v: Vec<u32> = range(0, 100).collect();
         let b = Encoder::buffer_encode(&v).unwrap();
         bh.iter(|| {
@@ -1973,7 +1995,7 @@ mod bench {
             let mut parser = Parser::new(streaming_parser);
             let bencode = parser.parse().unwrap();
             let mut decoder = Decoder::new(&bencode);
-            let result: DecoderResult<Vec<uint>> = Decodable::decode(&mut decoder);
+            let result: DecoderResult<Vec<usize>> = Decodable::decode(&mut decoder);
             result
         });
         bh.bytes = b.len() as u64 * 4;
