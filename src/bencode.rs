@@ -24,7 +24,7 @@
 
   use rustc_serialize::Encodable;
 
-  use bencode::Encoder;
+  use bencode::encode;
 
   #[derive(RustcEncodable)]
   struct MyStruct {
@@ -34,7 +34,7 @@
 
   fn main() {
       let s = MyStruct { string: "Hello bencode".to_string(), id: 1 };
-      let result: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
+      let result: Vec<u8> = encode(&s).unwrap();
   }
   ```
 
@@ -84,7 +84,7 @@
 
   use rustc_serialize::{Encodable, Decodable};
 
-  use bencode::{Encoder, Decoder};
+  use bencode::{encode, Decoder};
 
   #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
@@ -95,7 +95,7 @@
 
   fn main() {
       let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![1, 2, 3, 4] };
-      let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
+      let enc: Vec<u8> = encode(&s).unwrap();
 
       let bencode: bencode::Bencode = bencode::from_vec(enc).unwrap();
       let mut decoder = Decoder::new(&bencode);
@@ -165,7 +165,7 @@
   use bencode::streaming::StreamingParser;
   use rustc_serialize::Encodable;
 
-  use bencode::Encoder;
+  use bencode::encode;
 
   #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
@@ -176,7 +176,7 @@
 
   fn main() {
       let s = MyStruct{ a: 5, b: "foo".to_string(), c: vec![2, 2, 3, 4] };
-      let enc: Vec<u8> = Encoder::buffer_encode(&s).unwrap();
+      let enc: Vec<u8> = encode(&s).unwrap();
 
       let mut streaming = StreamingParser::new(enc.into_iter());
       for event in streaming {
@@ -185,7 +185,7 @@
               BencodeEvent::DictEnd => println!("dict end"),
               BencodeEvent::NumberValue(n) => println!("number = {}", n),
               // ...
-              _ => println!("Unhandled event: {}", event)
+              _ => println!("Unhandled event: {:?}", event)
           }
       }
   }
@@ -605,7 +605,7 @@ pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
     parser.parse()
 }
 
-fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
+pub fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
     let mut w = io::MemWriter::new();
     {
         let mut encoder = Encoder::new(&mut w);
@@ -1239,13 +1239,13 @@ mod tests {
                                   ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
     use super::{Bencode, ToBencode};
-    use super::{Parser, Encoder, Decoder, DecoderResult};
+    use super::{Parser, Encoder, Decoder, DecoderResult, encode};
 
     use super::util;
 
     macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
         let value = $value;
-        let encoded = match Encoder::buffer_encode(&value) {
+        let encoded = match encode(&value) {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
         };
@@ -1259,14 +1259,14 @@ mod tests {
         assert_eq!(Ok($value), result);
     }));
 
-    macro_rules! gen_encode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
+    macro_rules! gen_encode_test(($name:ident, $(($val:expr) -> $enc:expr),+) => {
         #[test]
         fn $name() {
             $(assert_encoding!($val, $enc);)+
         }
     });
 
-    macro_rules! gen_tobencode_test(($name:ident, $($val:expr -> $enc:expr),+) => {
+    macro_rules! gen_tobencode_test(($name:ident, $(($val:expr) -> $enc:expr),+) => {
         #[test]
         fn $name() {
             $({
@@ -1278,7 +1278,7 @@ mod tests {
 
     macro_rules! assert_identity(($value:expr) => ({
         let value = $value;
-        let encoded = match Encoder::buffer_encode(&value) {
+        let encoded = match encode(&value) {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
         };
@@ -1295,14 +1295,14 @@ mod tests {
         }
     });
 
-    macro_rules! gen_encode_identity_test(($name_enc:ident, $name_ident:ident, $($val:expr -> $enc:expr),+) => {
-        gen_encode_test!($name_enc, $($val -> $enc),+);
+    macro_rules! gen_encode_identity_test(($name_enc:ident, $name_ident:ident, $(($val:expr) -> $enc:expr),+) => {
+        gen_encode_test!($name_enc, $(($val) -> $enc),+);
         gen_identity_test!($name_ident, $($val),+);
     });
 
-    macro_rules! gen_complete_test(($name_enc:ident, $name_benc:ident, $name_ident:ident, $($val:expr -> $enc:expr),+) => {
-        gen_encode_test!($name_enc, $($val -> $enc),+);
-        gen_tobencode_test!($name_benc, $($val -> $enc),+);
+    macro_rules! gen_complete_test(($name_enc:ident, $name_benc:ident, $name_ident:ident, $(($val:expr) -> $enc:expr),+) => {
+        gen_encode_test!($name_enc, $(($val) -> $enc),+);
+        gen_tobencode_test!($name_benc, $(($val) -> $enc),+);
         gen_identity_test!($name_ident, $($val),+);
     });
 
@@ -1313,33 +1313,33 @@ mod tests {
     gen_complete_test!(encodes_unit,
                        tobencode_unit,
                        identity_unit,
-                       () -> bytes("0:"));
+                       (()) -> bytes("0:"));
 
     gen_complete_test!(encodes_option_none,
                        tobencode_option_none,
                        identity_option_none,
-                       {
+                       ({
                            let none: Option<int> = None;
                            none
-                       } -> bytes("3:nil"));
+                       }) -> bytes("3:nil"));
 
     gen_complete_test!(encodes_option_some,
                        tobencode_option_some,
                        identity_option_some,
-                       Some(1i) -> bytes("i1e"),
-                       Some("rust".to_string()) -> bytes("4:rust"),
-                       Some(vec![(), ()]) -> bytes("l0:0:e"));
+                       (Some(1i)) -> bytes("i1e"),
+                       (Some("rust".to_string())) -> bytes("4:rust"),
+                       (Some(vec![(), ()])) -> bytes("l0:0:e"));
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
-                       Some(Some(1i)) -> bytes("i1e"),
-                       Some(Some("rust".to_string())) -> bytes("4:rust"));
+                       (Some(Some(1i))) -> bytes("i1e"),
+                       (Some(Some("rust".to_string()))) -> bytes("4:rust"));
 
     #[test]
     fn option_is_none_if_any_nested_option_is_none() {
         let value: Option<Option<int>> = Some(None);
-        let encoded = match Encoder::buffer_encode(&value) {
+        let encoded = match encode(&value) {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
         };
@@ -1350,261 +1350,261 @@ mod tests {
     gen_complete_test!(encodes_zero_int,
                        tobencode_zero_int,
                        identity_zero_int,
-                       0i -> bytes("i0e"));
+                       (0i) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_int,
                        tobencode_positive_int,
                        identity_positive_int,
-                       5i -> bytes("i5e"),
-                       99i -> bytes("i99e"),
-                       ::std::int::MAX -> bytes(format!("i{}e", ::std::int::MAX).as_slice()));
+                       (5i) -> bytes("i5e"),
+                       (99i) -> bytes("i99e"),
+                       (::std::int::MAX) -> bytes(format!("i{}e", ::std::int::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_int,
                        tobencode_negative_int,
                        identity_negative_int,
-                       -5i -> bytes("i-5e"),
-                       -99i -> bytes("i-99e"),
-                       ::std::int::MIN -> bytes(format!("i{}e", ::std::int::MIN).as_slice()));
+                       (-5i) -> bytes("i-5e"),
+                       (-99i) -> bytes("i-99e"),
+                       (::std::int::MIN) -> bytes(format!("i{}e", ::std::int::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i8,
                        tobencode_zero_i8,
                        identity_zero_i8,
-                       0i8 -> bytes("i0e"));
+                       (0i8) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_i8,
                        tobencode_positive_i8,
                        identity_positive_i8,
-                       5i8 -> bytes("i5e"),
-                       99i8 -> bytes("i99e"),
-                       ::std::i8::MAX -> bytes(format!("i{}e", ::std::i8::MAX).as_slice()));
+                       (5i8) -> bytes("i5e"),
+                       (99i8) -> bytes("i99e"),
+                       (::std::i8::MAX) -> bytes(format!("i{}e", ::std::i8::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_i8,
                        tobencode_negative_i8,
                        identity_negative_i8,
-                       -5i8 -> bytes("i-5e"),
-                       -99i8 -> bytes("i-99e"),
-                       ::std::i8::MIN -> bytes(format!("i{}e", ::std::i8::MIN).as_slice()));
+                       (-5i8) -> bytes("i-5e"),
+                       (-99i8) -> bytes("i-99e"),
+                       (::std::i8::MIN) -> bytes(format!("i{}e", ::std::i8::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i16,
                        tobencode_zero_i16,
                        identity_zero_i16,
-                       0i16 -> bytes("i0e"));
+                       (0i16) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_i16,
                        tobencode_positive_i16,
                        identity_positive_i16,
-                       5i16 -> bytes("i5e"),
-                       99i16 -> bytes("i99e"),
-                       ::std::i16::MAX -> bytes(format!("i{}e", ::std::i16::MAX).as_slice()));
+                       (5i16) -> bytes("i5e"),
+                       (99i16) -> bytes("i99e"),
+                       (::std::i16::MAX) -> bytes(format!("i{}e", ::std::i16::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_i16,
                        tobencode_negative_i16,
                        identity_negative_i16,
-                       -5i16 -> bytes("i-5e"),
-                       -99i16 -> bytes("i-99e"),
-                       ::std::i16::MIN -> bytes(format!("i{}e", ::std::i16::MIN).as_slice()));
+                       (-5i16) -> bytes("i-5e"),
+                       (-99i16) -> bytes("i-99e"),
+                       (::std::i16::MIN) -> bytes(format!("i{}e", ::std::i16::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i32,
                        tobencode_zero_i32,
                        identity_zero_i32,
-                       0i32 -> bytes("i0e"));
+                       (0i32) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_i32,
                        tobencode_positive_i32,
                        identity_positive_i32,
-                       5i32 -> bytes("i5e"),
-                       99i32 -> bytes("i99e"),
-                       ::std::i32::MAX -> bytes(format!("i{}e", ::std::i32::MAX).as_slice()));
+                       (5i32) -> bytes("i5e"),
+                       (99i32) -> bytes("i99e"),
+                       (::std::i32::MAX) -> bytes(format!("i{}e", ::std::i32::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_i32,
                        tobencode_negative_i32,
                        identity_negative_i32,
-                       -5i32 -> bytes("i-5e"),
-                       -99i32 -> bytes("i-99e"),
-                       ::std::i32::MIN -> bytes(format!("i{}e", ::std::i32::MIN).as_slice()));
+                       (-5i32) -> bytes("i-5e"),
+                       (-99i32) -> bytes("i-99e"),
+                       (::std::i32::MIN) -> bytes(format!("i{}e", ::std::i32::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i64,
                        tobencode_zero_i64,
                        identity_zero_i64,
-                       0i64 -> bytes("i0e"));
+                       (0i64) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_i64,
                        tobencode_positive_i64,
                        identity_positive_i64,
-                       5i64 -> bytes("i5e"),
-                       99i64 -> bytes("i99e"),
-                       ::std::i64::MAX -> bytes(format!("i{}e", ::std::i64::MAX).as_slice()));
+                       (5i64) -> bytes("i5e"),
+                       (99i64) -> bytes("i99e"),
+                       (::std::i64::MAX) -> bytes(format!("i{}e", ::std::i64::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_i64,
                        tobencode_negative_i64,
                        identity_negative_i64,
-                       -5i64 -> bytes("i-5e"),
-                       -99i64 -> bytes("i-99e"),
-                       ::std::i64::MIN -> bytes(format!("i{}e", ::std::i64::MIN).as_slice()));
+                       (-5i64) -> bytes("i-5e"),
+                       (-99i64) -> bytes("i-99e"),
+                       (::std::i64::MIN) -> bytes(format!("i{}e", ::std::i64::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_usize,
                        tobencode_zero_usize,
                        identity_zero_usize,
-                       0u -> bytes("i0e"));
+                       (0u) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_usize,
                        tobencode_positive_usize,
                        identity_positive_usize,
-                       5u -> bytes("i5e"),
-                       99u -> bytes("i99e"),
-                       ::std::usize::MAX / 2 -> bytes(format!("i{}e", ::std::usize::MAX / 2).as_slice()));
+                       (5u) -> bytes("i5e"),
+                       (99u) -> bytes("i99e"),
+                       (::std::usize::MAX / 2) -> bytes(format!("i{}e", ::std::usize::MAX / 2).as_slice()));
 
     gen_complete_test!(encodes_zero_u8,
                        tobencode_zero_u8,
                        identity_zero_u8,
-                       0u8 -> bytes("i0e"));
+                       (0u8) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_u8,
                        tobencode_positive_u8,
                        identity_positive_u8,
-                       5u8 -> bytes("i5e"),
-                       99u8 -> bytes("i99e"),
-                       ::std::u8::MAX -> bytes(format!("i{}e", ::std::u8::MAX).as_slice()));
+                       (5u8) -> bytes("i5e"),
+                       (99u8) -> bytes("i99e"),
+                       (::std::u8::MAX) -> bytes(format!("i{}e", ::std::u8::MAX).as_slice()));
 
     gen_complete_test!(encodes_zero_u16,
                        tobencode_zero_u16,
                        identity_zero_u16,
-                       0u16 -> bytes("i0e"));
+                       (0u16) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_u16,
                        tobencode_positive_u16,
                        identity_positive_u16,
-                       5u16 -> bytes("i5e"),
-                       99u16 -> bytes("i99e"),
-                       ::std::u16::MAX -> bytes(format!("i{}e", ::std::u16::MAX).as_slice()));
+                       (5u16) -> bytes("i5e"),
+                       (99u16) -> bytes("i99e"),
+                       (::std::u16::MAX) -> bytes(format!("i{}e", ::std::u16::MAX).as_slice()));
 
     gen_complete_test!(encodes_zero_u32,
                        tobencode_zero_u32,
                        identity_zero_u32,
-                       0u32 -> bytes("i0e"));
+                       (0u32) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_u32,
                        tobencode_positive_u32,
                        identity_positive_u32,
-                       5u32 -> bytes("i5e"),
-                       99u32 -> bytes("i99e"),
-                       ::std::u32::MAX -> bytes(format!("i{}e", ::std::u32::MAX).as_slice()));
+                       (5u32) -> bytes("i5e"),
+                       (99u32) -> bytes("i99e"),
+                       (::std::u32::MAX) -> bytes(format!("i{}e", ::std::u32::MAX).as_slice()));
 
     gen_complete_test!(encodes_zero_u64,
                        tobencode_zero_u64,
                        identity_zero_u64,
-                       0u64 -> bytes("i0e"));
+                       (0u64) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_u64,
                        tobencode_positive_u64,
                        identity_positive_u64,
-                       5u64 -> bytes("i5e"),
-                       99u64 -> bytes("i99e"),
-                       ::std::u64::MAX / 2 -> bytes(format!("i{}e", ::std::u64::MAX / 2).as_slice()));
+                       (5u64) -> bytes("i5e"),
+                       (99u64) -> bytes("i99e"),
+                       (::std::u64::MAX / 2) -> bytes(format!("i{}e", ::std::u64::MAX / 2).as_slice()));
 
     gen_complete_test!(encodes_bool,
                        tobencode_bool,
                        identity_bool,
-                       true -> bytes("4:true"),
-                       false -> bytes("5:false"));
+                       (true) -> bytes("4:true"),
+                       (false) -> bytes("5:false"));
 
     gen_complete_test!(encodes_zero_f32,
                        tobencode_zero_f32,
                        identity_zero_f32,
-                       0.0f32 -> bytes("1:0"));
+                       (0.0f32) -> bytes("1:0"));
 
     gen_complete_test!(encodes_positive_f32,
                        tobencode_positive_f32,
                        identity_positive_f32,
-                       99.0f32 -> bytes("2:63"),
-                       101.12345f32 -> bytes("8:65.1f9a8"));
+                       (99.0f32) -> bytes("2:63"),
+                       (101.12345f32) -> bytes("8:65.1f9a8"));
 
     gen_complete_test!(encodes_negative_f32,
                        tobencode_negative_f32,
                        identity_negative_f32,
-                       -99.0f32 -> bytes("3:-63"),
-                       -101.12345f32 -> bytes("9:-65.1f9a8"));
+                       (-99.0f32) -> bytes("3:-63"),
+                       (-101.12345f32) -> bytes("9:-65.1f9a8"));
 
     gen_complete_test!(encodes_zero_f64,
                        tobencode_zero_f64,
                        identity_zero_f64,
-                       0.0f64 -> bytes("1:0"));
+                       (0.0f64) -> bytes("1:0"));
 
     gen_complete_test!(encodes_positive_f64,
                        tobencode_positive_f64,
                        identity_positive_f64,
-                       99.0f64 -> bytes("2:63"),
-                       101.12345f64 -> bytes("15:65.1f9a6b50b0f4"));
+                       (99.0f64) -> bytes("2:63"),
+                       (101.12345f64) -> bytes("15:65.1f9a6b50b0f4"));
 
     gen_complete_test!(encodes_negative_f64,
                        tobencode_negative_f64,
                        identity_negative_f64,
-                       -99.0f64 -> bytes("3:-63"),
-                       -101.12345f64 -> bytes("16:-65.1f9a6b50b0f4"));
+                       (-99.0f64) -> bytes("3:-63"),
+                       (-101.12345f64) -> bytes("16:-65.1f9a6b50b0f4"));
 
     gen_complete_test!(encodes_lower_letter_char,
                        tobencode_lower_letter_char,
                        identity_lower_letter_char,
-                       'a' -> bytes("1:a"),
-                       'c' -> bytes("1:c"),
-                       'z' -> bytes("1:z"));
+                       ('a') -> bytes("1:a"),
+                       ('c') -> bytes("1:c"),
+                       ('z') -> bytes("1:z"));
 
     gen_complete_test!(encodes_upper_letter_char,
                        tobencode_upper_letter_char,
                        identity_upper_letter_char,
-                       'A' -> bytes("1:A"),
-                       'C' -> bytes("1:C"),
-                       'Z' -> bytes("1:Z"));
+                       ('A') -> bytes("1:A"),
+                       ('C') -> bytes("1:C"),
+                       ('Z') -> bytes("1:Z"));
 
     gen_complete_test!(encodes_multibyte_char,
                        tobencode_multibyte_char,
                        identity_multibyte_char,
-                       'ệ' -> bytes("3:ệ"),
-                       '虎' -> bytes("3:虎"));
+                       ('ệ') -> bytes("3:ệ"),
+                       ('虎') -> bytes("3:虎"));
 
     gen_complete_test!(encodes_control_char,
                        tobencode_control_char,
                        identity_control_char,
-                       '\n' -> bytes("1:\n"),
-                       '\r' -> bytes("1:\r"),
-                       '\0' -> bytes("1:\0"));
+                       ('\n') -> bytes("1:\n"),
+                       ('\r') -> bytes("1:\r"),
+                       ('\0') -> bytes("1:\0"));
 
     gen_complete_test!(encode_empty_str,
                       tobencode_empty_str,
                       identity_empty_str,
-                      "".to_string() -> bytes("0:"));
+                      ("".to_string()) -> bytes("0:"));
 
     gen_complete_test!(encode_str,
                       tobencode_str,
                       identity_str,
-                      "a".to_string() -> bytes("1:a"),
-                      "foo".to_string() -> bytes("3:foo"),
-                      "This is nice!?#$%".to_string() -> bytes("17:This is nice!?#$%"));
+                      ("a".to_string()) -> bytes("1:a"),
+                      ("foo".to_string()) -> bytes("3:foo"),
+                      ("This is nice!?#$%".to_string()) -> bytes("17:This is nice!?#$%"));
 
     gen_complete_test!(encode_str_with_multibyte_chars,
                       tobencode_str_with_multibyte_chars,
                       identity_str_with_multibyte_chars,
-                      "Löwe 老虎 Léopard".to_string() -> bytes("21:Löwe 老虎 Léopard"),
-                      "いろはにほへとちりぬるを".to_string() -> bytes("36:いろはにほへとちりぬるを"));
+                      ("Löwe 老虎 Léopard".to_string()) -> bytes("21:Löwe 老虎 Léopard"),
+                      ("いろはにほへとちりぬるを".to_string()) -> bytes("36:いろはにほへとちりぬるを"));
 
     gen_complete_test!(encodes_empty_vec,
                        tobencode_empty_vec,
                        identity_empty_vec,
-                       {
+                       ({
                            let empty: Vec<u8> = Vec::new();
                            empty
-                       } -> bytes("le"));
+                       }) -> bytes("le"));
 
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       vec![0i, 1i, 3i, 4i] -> bytes("li0ei1ei3ei4ee"),
-                       vec!["foo".to_string(), "b".to_string()] -> bytes("l3:foo1:be"));
+                       (vec![0i, 1i, 3i, 4i]) -> bytes("li0ei1ei3ei4ee"),
+                       (vec!["foo".to_string(), "b".to_string()]) -> bytes("l3:foo1:be"));
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       vec![vec![1i], vec![2i, 3i], vec![]] -> bytes("lli1eeli2ei3eelee"));
+                       (vec![vec![1i], vec![2i, 3i], vec![]]) -> bytes("lli1eeli2ei3eelee"));
 
     #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
@@ -1627,18 +1627,18 @@ mod tests {
 
     gen_encode_identity_test!(encodes_struct,
                               identity_struct,
-                              SimpleStruct {
+                              (SimpleStruct {
                                   b: vec!["foo".to_string(), "baar".to_string()],
                                   a: 123
-                              } -> bytes("d1:ai123e1:bl3:foo4:baaree"),
-                              SimpleStruct {
+                              }) -> bytes("d1:ai123e1:bl3:foo4:baaree"),
+                              (SimpleStruct {
                                   a: 1234567890,
                                   b: vec![]
-                              } -> bytes("d1:ai1234567890e1:blee"));
+                              }) -> bytes("d1:ai1234567890e1:blee"));
 
     gen_encode_identity_test!(encodes_nested_struct,
                               identity_nested_struct,
-                              OuterStruct {
+                              (OuterStruct {
                                   is_true: true,
                                   inner: vec![InnerStruct {
                                       field_one: (),
@@ -1649,7 +1649,7 @@ mod tests {
                                       list: vec![],
                                       abc: "".to_string()
                                   }]
-                              } -> bytes("d\
+                              }) -> bytes("d\
                                            5:inner\
                                              l\
                                                d\
@@ -1679,13 +1679,13 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       map!(HashMap, ("a".to_string(), 1i)) -> bytes("d1:ai1ee"),
-                       map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string())) -> bytes("d3:bar2:bb3:foo1:ae"));
+                       (map!(HashMap, ("a".to_string(), 1i))) -> bytes("d1:ai1ee"),
+                       (map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string()))) -> bytes("d3:bar2:bb3:foo1:ae"));
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101i), ("bar".to_string(), 102i)))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
+                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101i), ("bar".to_string(), 102i))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Bencode::Dict(map!(BTreeMap, (util::ByteString::from_vec(bytes("foo")), Bencode::ByteString(bytes("bar")))));
@@ -1697,7 +1697,7 @@ mod tests {
     #[test]
     fn encode_error_on_wrong_map_key_type() {
         let m = map!(HashMap, (1i, "foo"));
-        let encoded = Encoder::buffer_encode(&m);
+        let encoded = encode(&m);
         assert!(encoded.is_err())
     }
 
@@ -1716,7 +1716,7 @@ mod tests {
             ab: 3,
             aa: 2
         };
-        assert_eq!(Encoder::buffer_encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
+        assert_eq!(encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
     #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
@@ -1751,13 +1751,13 @@ mod tests {
 
     gen_encode_identity_test!(encodes_nested_struct_fields,
                               identity_nested_struct_field,
-                              {
+                              ({
                                   OptionalStructOuter {
                                       a: Some(OPT_STRUCT.clone()),
                                       b: None
                                   }
-                              } -> bytes("d1:ad1:bi10eee"),
-                              {
+                              }) -> bytes("d1:ad1:bi10eee"),
+                              ({
                                   let a = OptionalStruct {
                                       a: None,
                                       b: 10,
@@ -1767,7 +1767,7 @@ mod tests {
                                       a: Some(a),
                                       b: Some(99)
                                   }
-                              } -> bytes("d1:ad1:bi10e1:cl4:true3:nilee1:bi99ee"));
+                              }) -> bytes("d1:ad1:bi10e1:cl4:true3:nilee1:bi99ee"));
 
     fn try_bencode(bencode: Bencode) -> Vec<u8> {
         match bencode.to_bytes() {
@@ -1969,7 +1969,7 @@ mod bench {
     use rustc_serialize::{Encodable, Decodable};
 
     use streaming::StreamingParser;
-    use super::{Encoder, Decoder, Parser, DecoderResult};
+    use super::{Encoder, Decoder, Parser, DecoderResult, encode};
 
     #[bench]
     fn encode_large_vec_of_usize(bh: &mut Bencher) {
@@ -1989,7 +1989,7 @@ mod bench {
     #[bench]
     fn decode_large_vec_of_usize(bh: &mut Bencher) {
         let v: Vec<u32> = range(0, 100).collect();
-        let b = Encoder::buffer_encode(&v).unwrap();
+        let b = encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().into_iter());
             let mut parser = Parser::new(streaming_parser);
