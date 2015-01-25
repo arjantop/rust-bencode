@@ -18,7 +18,6 @@
   ## Using `Encodable`
 
   ```rust
-  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -78,7 +77,6 @@
   ## Using `Decodable`
 
   ```rust
-  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -157,7 +155,6 @@
   ## Using Streaming Parser
 
   ```rust
-  #![feature(old_orphan_check)]
   extern crate "rustc-serialize" as rustc_serialize;
   extern crate bencode;
 
@@ -191,9 +188,6 @@
   }
   ```
 */
-
-// FIXME: new orphan rules break serialize
-#![feature(old_orphan_check)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 
@@ -1095,34 +1089,34 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         }
     }
 
-    fn read_enum<T, F>(&mut self, _name: &str, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_enum<T, F>(&mut self, _name: &str, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_enum")
     }
 
-    fn read_enum_variant<T, F>(&mut self, _names: &[&str], mut _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, usize) -> DecoderResult<T> {
+    fn read_enum_variant<T, F>(&mut self, _names: &[&str], mut _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder<'a>, usize) -> DecoderResult<T> {
         self.unimplemented("read_enum_variant")
     }
 
-    fn read_enum_variant_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_enum_variant_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_enum_variant_arg")
     }
 
-    fn read_enum_struct_variant<T, F>(&mut self, _names: &[&str], _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, usize) -> DecoderResult<T> {
+    fn read_enum_struct_variant<T, F>(&mut self, _names: &[&str], _f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder<'a>, usize) -> DecoderResult<T> {
         self.unimplemented("read_enum_struct_variant")
     }
 
-    fn read_enum_struct_variant_field<T, F>(&mut self, _name: &str, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_enum_struct_variant_field<T, F>(&mut self, _name: &str, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_enum_struct_variant_field")
     }
 
-    fn read_struct<T, F>(&mut self, _name: &str, _len: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_struct<T, F>(&mut self, _name: &str, _len: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         let res = try!(f(self));
         self.stack.pop();
         Ok(res)
     }
 
-    fn read_struct_field<T, F>(&mut self, name: &str, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_struct_field<T, F>(&mut self, name: &str, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         let val = match self.stack.last() {
             Some(v) => {
@@ -1142,23 +1136,23 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         f(self)
     }
 
-    fn read_tuple<T, F>(&mut self, _tuple_len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple<T, F>(&mut self, _tuple_len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_tuple")
     }
 
-    fn read_tuple_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_tuple_arg")
     }
 
-    fn read_tuple_struct<T, F>(&mut self, _name: &str, _len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_struct<T, F>(&mut self, _name: &str, _len: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_tuple_struct")
     }
 
-    fn read_tuple_struct_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_tuple_struct_arg<T, F>(&mut self, _idx: usize, _f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         self.unimplemented("read_tuple_struct_arg")
     }
 
-    fn read_option<T, F>(&mut self, mut f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder, bool) -> DecoderResult<T> {
+    fn read_option<T, F>(&mut self, mut f: F) -> DecoderResult<T> where F: FnMut(&mut Decoder<'a>, bool) -> DecoderResult<T> {
         let value = self.stack.pop();
         match value {
             Some(&Bencode::Empty) => f(self, false),
@@ -1178,7 +1172,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         }
     }
 
-    fn read_seq<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, usize) -> DecoderResult<T> {
+    fn read_seq<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>, usize) -> DecoderResult<T> {
         dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Bencode::List(ref list)) => {
@@ -1192,12 +1186,12 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         f(self, len)
     }
 
-    fn read_seq_elt<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_seq_elt<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         f(self)
     }
 
-    fn read_map<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder, usize) -> DecoderResult<T> {
+    fn read_map<T, F>(&mut self, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>, usize) -> DecoderResult<T> {
         dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Bencode::Dict(ref m)) => {
@@ -1212,7 +1206,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         f(self, len)
     }
 
-    fn read_map_elt_key<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_map_elt_key<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         self.expect_key = true;
         let res = try!(f(self));
@@ -1220,7 +1214,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         Ok(res)
     }
 
-    fn read_map_elt_val<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder) -> DecoderResult<T> {
+    fn read_map_elt_val<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         f(self)
     }
