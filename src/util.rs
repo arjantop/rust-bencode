@@ -1,10 +1,7 @@
 use std::{str, fmt};
 
 use rustc_serialize as serialize;
-use rustc_serialize::{Encodable, Decodable, Decoder};
-
-use super::DecoderError;
-use super::DecoderError::StringEncoding;
+use rustc_serialize::Encodable;
 
 #[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
 pub struct ByteString(Vec<u8>);
@@ -34,7 +31,7 @@ impl ByteString {
     }
 }
 
-impl fmt::String for ByteString {
+impl fmt::Display for ByteString {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use fmt_bytestring;
         match self {
@@ -64,10 +61,8 @@ impl Encodable for ByteString {
 
 #[cfg(test)]
 mod test {
-    use rustc_serialize::Decodable;
-
     use super::ByteString;
-    use super::super::{Encoder, from_vec, Decoder, encode};
+    use super::super::encode;
 
     #[test]
     fn test_encoding_bytestring_with_invalid_utf8() {

@@ -70,7 +70,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
 
     fn next_bytes(&mut self, len: usize) -> Result<Vec<u8>, Error> {
         let mut bytes = Vec::with_capacity(len);
-        for _ in range(0, len) {
+        for _ in 0..len {
             match self.curr {
                 Some(x) =>  bytes.push(x),
                 None => {

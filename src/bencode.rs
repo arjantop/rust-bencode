@@ -49,7 +49,7 @@
   use bencode::util::ByteString;
 
   struct MyStruct {
-      a: int,
+      a: isize,
       b: String,
       c: Vec<u8>,
   }
@@ -86,7 +86,7 @@
 
   #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
-      a: int,
+      a: i32,
       b: String,
       c: Vec<u8>,
   }
@@ -115,7 +115,7 @@
 
   #[derive(PartialEq)]
   struct MyStruct {
-      a: int
+      a: i32
   }
 
   impl ToBencode for MyStruct {
@@ -166,7 +166,7 @@
 
   #[derive(RustcEncodable, RustcDecodable, PartialEq)]
   struct MyStruct {
-      a: int,
+      a: i32,
       b: String,
       c: Vec<u8>,
   }
@@ -188,6 +188,8 @@
   }
   ```
 */
+
+#![allow(unstable)]
 
 extern crate "rustc-serialize" as rustc_serialize;
 
@@ -231,13 +233,13 @@ pub enum Bencode {
     Dict(DictMap),
 }
 
-impl fmt::Show for Bencode {
+impl fmt::Display for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         format(fmt, self)
     }
 }
 
-impl fmt::String for Bencode {
+impl fmt::Debug for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         format(fmt, self)
     }
@@ -615,7 +617,6 @@ macro_rules! tryenc(($e:expr) => (
     match $e {
         Ok(e) => e,
         Err(e) => {
-            self.error = Err(e);
             return
         }
     }
@@ -628,7 +629,6 @@ pub struct Encoder<'a> {
     writers: Vec<io::MemWriter>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
-    error: io::IoResult<()>,
     is_none: bool,
     stack: Vec<BTreeMap<util::ByteString, Vec<u8>>>,
 }
@@ -640,7 +640,6 @@ impl<'a> Encoder<'a> {
             writers: Vec::new(),
             expect_key: false,
             keys: Vec::new(),
-            error: Ok(()),
             is_none: false,
             stack: Vec::new()
         }
@@ -1233,7 +1232,7 @@ mod tests {
                                   ListEnd, DictStart, DictKey, DictEnd, ParseError};
 
     use super::{Bencode, ToBencode};
-    use super::{Parser, Encoder, Decoder, DecoderResult, encode};
+    use super::{Parser, Decoder, DecoderResult, encode};
 
     use super::util;
 
@@ -1313,51 +1312,51 @@ mod tests {
                        tobencode_option_none,
                        identity_option_none,
                        ({
-                           let none: Option<int> = None;
+                           let none: Option<isize> = None;
                            none
                        }) -> bytes("3:nil"));
 
     gen_complete_test!(encodes_option_some,
                        tobencode_option_some,
                        identity_option_some,
-                       (Some(1i)) -> bytes("i1e"),
+                       (Some(1is)) -> bytes("i1e"),
                        (Some("rust".to_string())) -> bytes("4:rust"),
                        (Some(vec![(), ()])) -> bytes("l0:0:e"));
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
-                       (Some(Some(1i))) -> bytes("i1e"),
+                       (Some(Some(1is))) -> bytes("i1e"),
                        (Some(Some("rust".to_string()))) -> bytes("4:rust"));
 
     #[test]
     fn option_is_none_if_any_nested_option_is_none() {
-        let value: Option<Option<int>> = Some(None);
+        let value: Option<Option<isize>> = Some(None);
         let encoded = match encode(&value) {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
         };
-        let none: Option<Option<int>> = None;
+        let none: Option<Option<isize>> = None;
         assert_decoding!(encoded, none);
     }
 
-    gen_complete_test!(encodes_zero_int,
-                       tobencode_zero_int,
-                       identity_zero_int,
-                       (0i) -> bytes("i0e"));
+    gen_complete_test!(encodes_zero_isize,
+                       tobencode_zero_isize,
+                       identity_zero_isize,
+                       (0is) -> bytes("i0e"));
 
-    gen_complete_test!(encodes_positive_int,
-                       tobencode_positive_int,
-                       identity_positive_int,
-                       (5i) -> bytes("i5e"),
-                       (99i) -> bytes("i99e"),
+    gen_complete_test!(encodes_positive_isize,
+                       tobencode_positive_isize,
+                       identity_positive_isize,
+                       (5is) -> bytes("i5e"),
+                       (99is) -> bytes("i99e"),
                        (::std::int::MAX) -> bytes(format!("i{}e", ::std::int::MAX).as_slice()));
 
-    gen_complete_test!(encodes_negative_int,
-                       tobencode_negative_int,
-                       identity_negative_int,
-                       (-5i) -> bytes("i-5e"),
-                       (-99i) -> bytes("i-99e"),
+    gen_complete_test!(encodes_negative_isize,
+                       tobencode_negative_isize,
+                       identity_negative_isize,
+                       (-5is) -> bytes("i-5e"),
+                       (-99is) -> bytes("i-99e"),
                        (::std::int::MIN) -> bytes(format!("i{}e", ::std::int::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i8,
@@ -1439,13 +1438,13 @@ mod tests {
     gen_complete_test!(encodes_zero_usize,
                        tobencode_zero_usize,
                        identity_zero_usize,
-                       (0u) -> bytes("i0e"));
+                       (0us) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_usize,
                        tobencode_positive_usize,
                        identity_positive_usize,
-                       (5u) -> bytes("i5e"),
-                       (99u) -> bytes("i99e"),
+                       (5us) -> bytes("i5e"),
+                       (99us) -> bytes("i99e"),
                        (::std::usize::MAX / 2) -> bytes(format!("i{}e", ::std::usize::MAX / 2).as_slice()));
 
     gen_complete_test!(encodes_zero_u8,
@@ -1592,13 +1591,13 @@ mod tests {
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       (vec![0i, 1i, 3i, 4i]) -> bytes("li0ei1ei3ei4ee"),
+                       (vec![0is, 1is, 3is, 4is]) -> bytes("li0ei1ei3ei4ee"),
                        (vec!["foo".to_string(), "b".to_string()]) -> bytes("l3:foo1:be"));
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       (vec![vec![1i], vec![2i, 3i], vec![]]) -> bytes("lli1eeli2ei3eelee"));
+                       (vec![vec![1is], vec![2is, 3is], vec![]]) -> bytes("lli1eeli2ei3eelee"));
 
     #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
@@ -1636,7 +1635,7 @@ mod tests {
                                   is_true: true,
                                   inner: vec![InnerStruct {
                                       field_one: (),
-                                      list: vec![99u, 5u],
+                                      list: vec![99us, 5us],
                                       abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
@@ -1673,24 +1672,24 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       (map!(HashMap, ("a".to_string(), 1i))) -> bytes("d1:ai1ee"),
+                       (map!(HashMap, ("a".to_string(), 1is))) -> bytes("d1:ai1ee"),
                        (map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string()))) -> bytes("d3:bar2:bb3:foo1:ae"));
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101i), ("bar".to_string(), 102i))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
+                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101is), ("bar".to_string(), 102is))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Bencode::Dict(map!(BTreeMap, (util::ByteString::from_vec(bytes("foo")), Bencode::ByteString(bytes("bar")))));
         let mut decoder = Decoder::new(&benc);
-        let res: DecoderResult<BTreeMap<int, String>> = Decodable::decode(&mut decoder);
+        let res: DecoderResult<BTreeMap<isize, String>> = Decodable::decode(&mut decoder);
         assert!(res.is_err());
     }
 
     #[test]
     fn encode_error_on_wrong_map_key_type() {
-        let m = map!(HashMap, (1i, "foo"));
+        let m = map!(HashMap, (1is, "foo"));
         let encoded = encode(&m);
         assert!(encoded.is_err())
     }
@@ -1699,10 +1698,10 @@ mod tests {
     fn encodes_struct_fields_in_sorted_order() {
         #[derive(RustcEncodable)]
         struct OrderedStruct {
-            z: int,
-            a: int,
-            ab: int,
-            aa: int,
+            z: isize,
+            a: isize,
+            ab: isize,
+            aa: isize,
         }
         let s = OrderedStruct {
             z: 4,
@@ -1715,15 +1714,15 @@ mod tests {
 
     #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
     struct OptionalStruct {
-        a: Option<int>,
-        b: int,
+        a: Option<isize>,
+        b: isize,
         c: Option<Vec<Option<bool>>>,
     }
 
     #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show)]
     struct OptionalStructOuter {
         a: Option<OptionalStruct>,
-        b: Option<int>,
+        b: Option<isize>,
     }
 
     static OPT_STRUCT: OptionalStruct = OptionalStruct {
@@ -1967,7 +1966,7 @@ mod bench {
 
     #[bench]
     fn encode_large_vec_of_usize(bh: &mut Bencher) {
-        let v: Vec<u32> = range(0, 100).collect();
+        let v: Vec<u32> = (0u32..100).collect();
         bh.iter(|| {
             let mut w = io::MemWriter::with_capacity(v.len() * 10);
             {
@@ -1982,7 +1981,7 @@ mod bench {
 
     #[bench]
     fn decode_large_vec_of_usize(bh: &mut Bencher) {
-        let v: Vec<u32> = range(0, 100).collect();
+        let v: Vec<u32> = (0u32..100).collect();
         let b = encode(&v).unwrap();
         bh.iter(|| {
             let streaming_parser = StreamingParser::new(b.clone().into_iter());
