@@ -1956,7 +1956,7 @@ mod bench {
 
     use self::test::Bencher;
 
-    use std::io;
+    use std::old_io;
 
     use rustc_serialize::{Encodable, Decodable};
 
