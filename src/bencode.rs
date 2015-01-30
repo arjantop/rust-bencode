@@ -193,8 +193,7 @@
 
 extern crate "rustc-serialize" as rustc_serialize;
 
-use std::io;
-use std::io::{IoResult, IoError};
+use std::old_io::{self, IoResult, IoError};
 use std::fmt;
 use std::str;
 use std::vec::Vec;
@@ -283,13 +282,13 @@ pub type ListVec = Vec<Bencode>;
 pub type DictMap = BTreeMap<util::ByteString, Bencode>;
 
 impl Bencode {
-    pub fn to_writer(&self, writer: &mut io::Writer) -> io::IoResult<()> {
+    pub fn to_writer(&self, writer: &mut old_io::Writer) -> old_io::IoResult<()> {
         let mut encoder = Encoder::new(writer);
         self.encode(&mut encoder)
     }
 
-    pub fn to_bytes(&self) -> io::IoResult<Vec<u8>> {
-        let mut writer = io::MemWriter::new();
+    pub fn to_bytes(&self) -> old_io::IoResult<Vec<u8>> {
+        let mut writer = old_io::MemWriter::new();
         match self.to_writer(&mut writer) {
             Ok(_) => Ok(writer.into_inner()),
             Err(err) => Err(err)
@@ -602,7 +601,7 @@ pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
 }
 
 pub fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
-    let mut w = io::MemWriter::new();
+    let mut w = old_io::MemWriter::new();
     {
         let mut encoder = Encoder::new(&mut w);
         match t.encode(&mut encoder) {
@@ -625,8 +624,8 @@ macro_rules! tryenc(($e:expr) => (
 pub type EncoderResult<T> = IoResult<T>;
 
 pub struct Encoder<'a> {
-    writer: &'a mut (io::Writer + 'a),
-    writers: Vec<io::MemWriter>,
+    writer: &'a mut (old_io::Writer + 'a),
+    writers: Vec<old_io::MemWriter>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
     is_none: bool,
@@ -634,7 +633,7 @@ pub struct Encoder<'a> {
 }
 
 impl<'a> Encoder<'a> {
-    pub fn new(writer: &'a mut io::Writer) -> Encoder<'a> {
+    pub fn new(writer: &'a mut old_io::Writer) -> Encoder<'a> {
         Encoder {
             writer: writer,
             writers: Vec::new(),
@@ -645,11 +644,11 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn get_writer(&mut self) -> &mut io::Writer {
+    fn get_writer(&mut self) -> &mut old_io::Writer {
         if self.writers.len() == 0 {
-            &mut self.writer as &mut io::Writer
+            &mut self.writer as &mut old_io::Writer
         } else {
-            self.writers.last_mut().unwrap() as &mut io::Writer
+            self.writers.last_mut().unwrap() as &mut old_io::Writer
         }
     }
 
@@ -657,14 +656,14 @@ impl<'a> Encoder<'a> {
         try!(write!(self.get_writer(), "d"));
         for (key, value) in dict.iter() {
             try!(key.encode(self));
-            try!(self.get_writer().write(value.as_slice()));
+            try!(self.get_writer().write_all(value.as_slice()));
         }
         write!(self.get_writer(), "e")
     }
 
     fn error(&mut self, msg: &'static str) -> EncoderResult<()> {
         Err(IoError {
-            kind: io::InvalidInput,
+            kind: old_io::InvalidInput,
             desc: msg,
             detail: None
         })
@@ -732,7 +731,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
             Ok(())
         } else {
             try!(write!(self.get_writer(), "{}:", v.len()));
-            self.get_writer().write(v.as_bytes())
+            self.get_writer().write_all(v.as_bytes())
         }
     }
 
@@ -768,7 +767,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_struct_field<F>(&mut self, f_name: &str, _f_idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        self.writers.push(io::MemWriter::new());
+        self.writers.push(old_io::MemWriter::new());
         try!(f(self));
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
@@ -836,7 +835,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_map_elt_key<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        self.writers.push(io::MemWriter::new());
+        self.writers.push(old_io::MemWriter::new());
         self.expect_key = true;
         try!(f(self));
         self.expect_key = false;
@@ -1968,7 +1967,7 @@ mod bench {
     fn encode_large_vec_of_usize(bh: &mut Bencher) {
         let v: Vec<u32> = (0u32..100).collect();
         bh.iter(|| {
-            let mut w = io::MemWriter::with_capacity(v.len() * 10);
+            let mut w = old_io::MemWriter::with_capacity(v.len() * 10);
             {
                 let mut enc = Encoder::new(&mut w);
                 let _ = v.encode(&mut enc);
