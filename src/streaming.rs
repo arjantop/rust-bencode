@@ -2,7 +2,7 @@ use self::BencodePosition::{ListPosition, KeyPosition, ValuePosition};
 use self::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
                          DictStart, DictKey, DictEnd, ParseError};
 
-#[derive(Show, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
     ByteStringValue(Vec<u8>),
@@ -14,13 +14,13 @@ pub enum BencodeEvent {
     ParseError(Error),
 }
 
-#[derive(Show, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Error {
     pub pos: u32,
     pub msg: String,
 }
 
-#[derive(Show, Eq, PartialEq, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum BencodePosition {
     ListPosition,
     KeyPosition,

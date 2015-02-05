@@ -417,7 +417,7 @@ impl FromBencode for f32 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v.as_slice()) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16),
+                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
@@ -437,7 +437,7 @@ impl FromBencode for f64 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v.as_slice()) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16),
+                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
@@ -949,7 +949,7 @@ macro_rules! dec_expect_value(($slf:expr) => {
 
 static EMPTY: Bencode = Empty;
 
-#[derive(Eq, PartialEq, Clone, Show)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum DecoderError {
     Message(String),
     StringEncoding(Vec<u8>),
@@ -1598,20 +1598,20 @@ mod tests {
                        identity_nested_vec,
                        (vec![vec![1is], vec![2is, 3is], vec![]]) -> bytes("lli1eeli2ei3eelee"));
 
-    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Debug, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
         a: usize,
         b: Vec<String>,
     }
 
-    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Debug, RustcEncodable, RustcDecodable)]
     struct InnerStruct {
         field_one: (),
         list: Vec<usize>,
         abc: String
     }
 
-    #[derive(Eq, PartialEq, Show, RustcEncodable, RustcDecodable)]
+    #[derive(Eq, PartialEq, Debug, RustcEncodable, RustcDecodable)]
     struct OuterStruct {
         inner: Vec<InnerStruct>,
         is_true: bool
@@ -1711,14 +1711,14 @@ mod tests {
         assert_eq!(encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
     }
 
-    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show, Clone)]
+    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Debug, Clone)]
     struct OptionalStruct {
         a: Option<isize>,
         b: isize,
         c: Option<Vec<Option<bool>>>,
     }
 
-    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Show)]
+    #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Debug)]
     struct OptionalStructOuter {
         a: Option<OptionalStruct>,
         b: Option<isize>,
