@@ -223,7 +223,7 @@ fn fmt_bytestring(s: &[u8], fmt: &mut fmt::Formatter) -> fmt::Result {
   }
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum Bencode {
     Empty,
     Number(i64),
@@ -233,12 +233,6 @@ pub enum Bencode {
 }
 
 impl fmt::Display for Bencode {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        format(fmt, self)
-    }
-}
-
-impl fmt::Debug for Bencode {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         format(fmt, self)
     }
