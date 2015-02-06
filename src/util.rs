@@ -3,7 +3,7 @@ use std::{str, fmt};
 use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
 
-#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash)]
+#[derive(Eq, PartialEq, Clone, Ord, PartialOrd, Hash, Debug)]
 pub struct ByteString(Vec<u8>);
 
 impl ByteString {
