@@ -1343,14 +1343,14 @@ mod tests {
                        identity_positive_isize,
                        (5is) -> bytes("i5e"),
                        (99is) -> bytes("i99e"),
-                       (::std::int::MAX) -> bytes(format!("i{}e", ::std::int::MAX).as_slice()));
+                       (::std::isize::MAX) -> bytes(format!("i{}e", ::std::isize::MAX).as_slice()));
 
     gen_complete_test!(encodes_negative_isize,
                        tobencode_negative_isize,
                        identity_negative_isize,
                        (-5is) -> bytes("i-5e"),
                        (-99is) -> bytes("i-99e"),
-                       (::std::int::MIN) -> bytes(format!("i{}e", ::std::int::MIN).as_slice()));
+                       (::std::isize::MIN) -> bytes(format!("i{}e", ::std::isize::MIN).as_slice()));
 
     gen_complete_test!(encodes_zero_i8,
                        tobencode_zero_i8,
