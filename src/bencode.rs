@@ -18,7 +18,7 @@
   ## Using `Encodable`
 
   ```rust
-  extern crate "rustc-serialize" as rustc_serialize;
+  extern crate "rustc_serialize" as rustc_serialize;
   extern crate bencode;
 
   use rustc_serialize::Encodable;
@@ -40,10 +40,9 @@
   ## Using `ToBencode`
 
   ```rust
-  extern crate collections;
   extern crate bencode;
 
-  use collections::BTreeMap;
+  use std::collections::BTreeMap;
 
   use bencode::{Bencode, ToBencode};
   use bencode::util::ByteString;
@@ -59,7 +58,7 @@
           let mut m = BTreeMap::new();
           m.insert(ByteString::from_str("a"), self.a.to_bencode());
           m.insert(ByteString::from_str("b"), self.b.to_bencode());
-          m.insert(ByteString::from_str("c"), Bencode::ByteString(self.c.as_slice().to_vec()));
+          m.insert(ByteString::from_str("c"), Bencode::ByteString(self.c.to_vec()));
           Bencode::Dict(m)
       }
   }
@@ -77,7 +76,7 @@
   ## Using `Decodable`
 
   ```rust
-  extern crate "rustc-serialize" as rustc_serialize;
+  extern crate "rustc_serialize" as rustc_serialize;
   extern crate bencode;
 
   use rustc_serialize::{Encodable, Decodable};
@@ -105,10 +104,9 @@
   ## Using `FromBencode`
 
   ```rust
-  extern crate collections;
   extern crate bencode;
 
-  use collections::BTreeMap;
+  use std::collections::BTreeMap;
 
   use bencode::{FromBencode, ToBencode, Bencode};
   use bencode::util::ByteString;
@@ -155,7 +153,7 @@
   ## Using Streaming Parser
 
   ```rust
-  extern crate "rustc-serialize" as rustc_serialize;
+  extern crate "rustc_serialize" as rustc_serialize;
   extern crate bencode;
 
   use bencode::streaming::BencodeEvent;
@@ -189,9 +187,9 @@
   ```
 */
 
-#![allow(unstable)]
+#![feature(core, old_io, std_misc, io, test)]
 
-extern crate "rustc-serialize" as rustc_serialize;
+extern crate "rustc_serialize" as rustc_serialize;
 
 use std::old_io::{self, IoResult, IoError};
 use std::fmt;
@@ -200,7 +198,7 @@ use std::vec::Vec;
 use std::num::FromStrRadix;
 
 use rustc_serialize as serialize;
-use rustc_serialize::{Encodable};
+use rustc_serialize::Encodable;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -242,7 +240,7 @@ fn format(fmt: &mut fmt::Formatter, v: &Bencode) -> fmt::Result {
     match *v {
         Bencode::Empty => { Ok(()) }
         Bencode::Number(v) => write!(fmt, "{}", v),
-        Bencode::ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
+        Bencode::ByteString(ref v) => fmt_bytestring(v, fmt),
         Bencode::List(ref v) => {
             try!(write!(fmt, "["));
             let mut first = true;
@@ -295,7 +293,7 @@ impl Encodable for Bencode {
         match self {
             &Bencode::Empty => Ok(()),
             &Bencode::Number(v) => e.emit_i64(v),
-            &Bencode::ByteString(ref v) => e.emit_str(unsafe { str::from_utf8_unchecked(v.as_slice()) }),
+            &Bencode::ByteString(ref v) => e.emit_str(unsafe { str::from_utf8_unchecked(v) }),
             &Bencode::List(ref v) => v.encode(e),
             &Bencode::Dict(ref v) => v.encode(e)
         }
@@ -344,7 +342,7 @@ impl<T: FromBencode> FromBencode for Option<T> {
     fn from_bencode(bencode: &Bencode) -> Option<Option<T>> {
         match bencode {
             &Bencode::ByteString(ref v) => {
-                if v.as_slice() == b"nil" {
+                if v == b"nil" {
                     return Some(None)
                 }
             }
@@ -410,7 +408,7 @@ impl FromBencode for f32 {
     fn from_bencode(bencode: &Bencode) -> Option<f32> {
         match bencode {
             &Bencode::ByteString(ref v)  => {
-                match str::from_utf8(v.as_slice()) {
+                match str::from_utf8(v) {
                     Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
@@ -430,7 +428,7 @@ impl FromBencode for f64 {
     fn from_bencode(bencode: &Bencode) -> Option<f64> {
         match bencode {
             &Bencode::ByteString(ref v)  => {
-                match str::from_utf8(v.as_slice()) {
+                match str::from_utf8(v) {
                     Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
@@ -454,9 +452,9 @@ impl FromBencode for bool {
     fn from_bencode(bencode: &Bencode) -> Option<bool> {
         match bencode {
             &Bencode::ByteString(ref v) => {
-                if v.as_slice() == b"true" {
+                if v == b"true" {
                     Some(true)
-                } else if v.as_slice() == b"false" {
+                } else if v == b"false" {
                     Some(false)
                 } else {
                     None
@@ -478,7 +476,7 @@ impl FromBencode for char {
         let s: Option<String> = FromBencode::from_bencode(bencode);
         s.and_then(|s| {
             if s.chars().count() == 1 {
-                Some(s.as_slice().char_at(0))
+                Some(s.chars().next().unwrap())
             } else {
                 None
             }
@@ -493,7 +491,7 @@ impl ToBencode for String {
 impl FromBencode for String {
     fn from_bencode(bencode: &Bencode) -> Option<String> {
         match bencode {
-            &Bencode::ByteString(ref v) => std::str::from_utf8(v.as_slice()).map(|s| s.to_string()).ok(),
+            &Bencode::ByteString(ref v) => std::str::from_utf8(v).map(|s| s.to_string()).ok(),
             _ => None
         }
     }
@@ -585,7 +583,7 @@ pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
 }
 
 pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
-    from_buffer(buf.as_slice())
+    from_buffer(&buf[..])
 }
 
 pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
@@ -650,7 +648,7 @@ impl<'a> Encoder<'a> {
         try!(write!(self.get_writer(), "d"));
         for (key, value) in dict.iter() {
             try!(key.encode(self));
-            try!(self.get_writer().write_all(value.as_slice()));
+            try!(self.get_writer().write_all(value));
         }
         write!(self.get_writer(), "e")
     }
@@ -706,17 +704,17 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_f32(&mut self, v: f32) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(std::f32::to_str_hex(v).as_slice())
+        self.emit_str(&std::f32::to_str_hex(v))
     }
 
     fn emit_f64(&mut self, v: f64) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(std::f64::to_str_hex(v).as_slice())
+        self.emit_str(&std::f64::to_str_hex(v))
     }
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(v.to_string().as_slice())
+        self.emit_str(&v.to_string())
     }
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
@@ -1076,7 +1074,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
                 Some(&Bencode::ByteString(ref v)) => {
                     String::from_utf8(v.clone()).map_err(|err| StringEncoding(err.into_bytes()))
                 }
-                _ => Err(self.error(format!("Error decoding value as str: {:?}", bencode).as_slice()))
+                _ => Err(self.error(&format!("Error decoding value as str: {:?}", bencode)))
             }
         }
     }
@@ -1149,7 +1147,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         match value {
             Some(&Bencode::Empty) => f(self, false),
             Some(&Bencode::ByteString(ref v)) => {
-                if v.as_slice() == b"nil" {
+                if v == b"nil" {
                     f(self, false)
                 } else {
                     self.stack.push(value.unwrap());
@@ -1168,7 +1166,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
         dec_expect_value!(self);
         let len = match self.stack.pop() {
             Some(&Bencode::List(ref list)) => {
-                for v in list.as_slice().iter().rev() {
+                for v in list.iter().rev() {
                     self.stack.push(v);
                 }
                 list.len()
@@ -1235,7 +1233,7 @@ mod tests {
             Ok(e) => e,
             Err(err) => panic!("Unexpected failure: {}", err)
         };
-        assert_eq!($expected.as_slice(), encoded.as_slice());
+        assert_eq!($expected, encoded);
     }));
 
     macro_rules! assert_decoding(($enc:expr, $value:expr) => ({
