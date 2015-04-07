@@ -18,7 +18,7 @@
   ## Using `Encodable`
 
   ```rust
-  extern crate "rustc_serialize" as rustc_serialize;
+  extern crate rustc_serialize;
   extern crate bencode;
 
   use rustc_serialize::Encodable;
@@ -76,7 +76,7 @@
   ## Using `Decodable`
 
   ```rust
-  extern crate "rustc_serialize" as rustc_serialize;
+  extern crate rustc_serialize;
   extern crate bencode;
 
   use rustc_serialize::{Encodable, Decodable};
@@ -153,7 +153,7 @@
   ## Using Streaming Parser
 
   ```rust
-  extern crate "rustc_serialize" as rustc_serialize;
+  extern crate rustc_serialize;
   extern crate bencode;
 
   use bencode::streaming::BencodeEvent;
@@ -189,7 +189,7 @@
 
 #![feature(core, old_io, std_misc, io, test)]
 
-extern crate "rustc_serialize" as rustc_serialize;
+extern crate rustc_serialize;
 
 use std::old_io::{self, IoResult, IoError};
 use std::fmt;
