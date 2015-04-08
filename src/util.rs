@@ -21,7 +21,7 @@ impl ByteString {
 
     pub fn as_slice(&self) -> &[u8] {
       match self {
-        &ByteString(ref v)  => v.as_slice()
+        &ByteString(ref v)  => &v[..]
       }
     }
 
@@ -35,7 +35,7 @@ impl fmt::Display for ByteString {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         use fmt_bytestring;
         match self {
-            &ByteString(ref v) => fmt_bytestring(v.as_slice(), fmt),
+            &ByteString(ref v) => fmt_bytestring(&v[..], fmt),
         }
     }
 }
@@ -43,7 +43,7 @@ impl fmt::Display for ByteString {
 impl Encodable for ByteString {
     fn encode<S: serialize::Encoder>(&self, e: &mut S) -> Result<(), S::Error> {
         let &ByteString(ref key) = self;
-        e.emit_str(unsafe { str::from_utf8_unchecked(key.as_slice()) })
+        e.emit_str(unsafe { str::from_utf8_unchecked(&key[..]) })
     }
 }
 
