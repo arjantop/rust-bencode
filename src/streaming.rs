@@ -272,7 +272,7 @@ mod test {
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
         let parser = StreamingParser::new(encoded.bytes());
         let result = parser.collect::<Vec<_>>();
-        assert_eq!(expected, result.as_slice());
+        assert_eq!(expected.to_vec(), result);
     }
 
     #[test]
@@ -303,13 +303,13 @@ mod test {
     #[test]
     fn parses_positive_numbers() {
         assert_stream_eq("i5e", &[NumberValue(5)]);
-        assert_stream_eq(format!("i{}e", ::std::i64::MAX).as_slice(), &[NumberValue(::std::i64::MAX)]);
+        assert_stream_eq(&format!("i{}e", ::std::i64::MAX)[..], &[NumberValue(::std::i64::MAX)]);
     }
 
     #[test]
     fn parses_negative_numbers() {
         assert_stream_eq("i-5e", &[NumberValue(-5)]);
-        assert_stream_eq(format!("i{}e", ::std::i64::MIN).as_slice(), &[NumberValue(::std::i64::MIN)]);
+        assert_stream_eq(&format!("i{}e", ::std::i64::MIN)[..], &[NumberValue(::std::i64::MIN)]);
     }
 
     #[test]
@@ -350,7 +350,7 @@ mod test {
     #[test]
     fn parses_long_bytestring() {
         let long = repeat("baz").take(10).collect::<String>();
-        assert_stream_eq(format!("{}:{}", long.len(), long).as_slice(), &[ByteStringValue(bytes(long.as_slice()))]);
+        assert_stream_eq(&format!("{}:{}", long.len(), long)[..], &[ByteStringValue(bytes(long.as_ref()))]);
     }
 
     #[test]

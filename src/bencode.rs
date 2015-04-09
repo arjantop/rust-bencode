@@ -187,11 +187,11 @@
   ```
 */
 
-#![feature(core, old_io, std_misc, io, test)]
+#![feature(core, std_misc, test)]
 
 extern crate rustc_serialize;
 
-use std::old_io::{self, IoResult, IoError};
+use std::io::{self, Write};
 use std::fmt;
 use std::str;
 use std::vec::Vec;
@@ -274,15 +274,15 @@ pub type ListVec = Vec<Bencode>;
 pub type DictMap = BTreeMap<util::ByteString, Bencode>;
 
 impl Bencode {
-    pub fn to_writer(&self, writer: &mut old_io::Writer) -> old_io::IoResult<()> {
+    pub fn to_writer(&self, writer: &mut io::Write) -> io::Result<()> {
         let mut encoder = Encoder::new(writer);
         self.encode(&mut encoder)
     }
 
-    pub fn to_bytes(&self) -> old_io::IoResult<Vec<u8>> {
-        let mut writer = old_io::MemWriter::new();
+    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
+        let mut writer = vec![];
         match self.to_writer(&mut writer) {
-            Ok(_) => Ok(writer.into_inner()),
+            Ok(_) => Ok(writer),
             Err(err) => Err(err)
         }
     }
@@ -400,7 +400,7 @@ derive_num_from_bencode!(u64);
 
 impl ToBencode for f32 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f32::to_str_hex(*self).as_bytes().to_vec())
+        Bencode::ByteString(std::f32::to_str_hex(*self).into_bytes())
     }
 }
 
@@ -420,7 +420,7 @@ impl FromBencode for f32 {
 
 impl ToBencode for f64 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f64::to_str_hex(*self).as_bytes().to_vec())
+        Bencode::ByteString(std::f64::to_str_hex(*self).into_bytes())
     }
 }
 
@@ -592,8 +592,8 @@ pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
     parser.parse()
 }
 
-pub fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
-    let mut w = old_io::MemWriter::new();
+pub fn encode<T: serialize::Encodable>(t: T) -> io::Result<Vec<u8>> {
+    let mut w = vec![];
     {
         let mut encoder = Encoder::new(&mut w);
         match t.encode(&mut encoder) {
@@ -601,7 +601,7 @@ pub fn encode<T: serialize::Encodable>(t: T) -> IoResult<Vec<u8>> {
             _ => {}
         }
     }
-    Ok(w.into_inner())
+    Ok(w)
 }
 
 macro_rules! tryenc(($e:expr) => (
@@ -613,11 +613,11 @@ macro_rules! tryenc(($e:expr) => (
     }
 ));
 
-pub type EncoderResult<T> = IoResult<T>;
+pub type EncoderResult<T> = io::Result<T>;
 
 pub struct Encoder<'a> {
-    writer: &'a mut (old_io::Writer + 'a),
-    writers: Vec<old_io::MemWriter>,
+    writer: &'a mut (io::Write + 'a),
+    writers: Vec<Vec<u8>>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
     is_none: bool,
@@ -625,7 +625,7 @@ pub struct Encoder<'a> {
 }
 
 impl<'a> Encoder<'a> {
-    pub fn new(writer: &'a mut old_io::Writer) -> Encoder<'a> {
+    pub fn new(writer: &'a mut io::Write) -> Encoder<'a> {
         Encoder {
             writer: writer,
             writers: Vec::new(),
@@ -636,11 +636,11 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn get_writer(&mut self) -> &mut old_io::Writer {
+    fn get_writer(&mut self) -> &mut io::Write {
         if self.writers.len() == 0 {
-            &mut self.writer as &mut old_io::Writer
+            &mut self.writer as &mut io::Write
         } else {
-            self.writers.last_mut().unwrap() as &mut old_io::Writer
+            self.writers.last_mut().unwrap() as &mut io::Write
         }
     }
 
@@ -654,11 +654,7 @@ impl<'a> Encoder<'a> {
     }
 
     fn error(&mut self, msg: &'static str) -> EncoderResult<()> {
-        Err(IoError {
-            kind: old_io::InvalidInput,
-            desc: msg,
-            detail: None
-        })
+        Err(io::Error::new(io::ErrorKind::InvalidInput, msg))
     }
 }
 
@@ -669,7 +665,7 @@ macro_rules! expect_value(($slf:expr) => {
 });
 
 impl<'a> serialize::Encoder for Encoder<'a> {
-    type Error = IoError;
+    type Error = io::Error;
 
     fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "0:") }
 
@@ -759,12 +755,12 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_struct_field<F>(&mut self, f_name: &str, _f_idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        self.writers.push(old_io::MemWriter::new());
+        self.writers.push(vec![]);
         try!(f(self));
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
         if !self.is_none {
-            dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data.into_inner());
+            dict.insert(util::ByteString::from_slice(f_name.as_bytes()), data);
         }
         self.is_none = false;
         Ok(())
@@ -827,7 +823,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_map_elt_key<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        self.writers.push(old_io::MemWriter::new());
+        self.writers.push(vec![]);
         self.expect_key = true;
         try!(f(self));
         self.expect_key = false;
@@ -841,7 +837,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
-        dict.insert(key.unwrap(), data.into_inner());
+        dict.insert(key.unwrap(), data);
         self.is_none = false;
         Ok(())
     }
@@ -1341,14 +1337,14 @@ mod tests {
                        identity_positive_isize,
                        (5is) -> bytes("i5e"),
                        (99is) -> bytes("i99e"),
-                       (::std::isize::MAX) -> bytes(format!("i{}e", ::std::isize::MAX).as_slice()));
+                       (::std::isize::MAX) -> bytes(&format!("i{}e", ::std::isize::MAX)[..]));
 
     gen_complete_test!(encodes_negative_isize,
                        tobencode_negative_isize,
                        identity_negative_isize,
                        (-5is) -> bytes("i-5e"),
                        (-99is) -> bytes("i-99e"),
-                       (::std::isize::MIN) -> bytes(format!("i{}e", ::std::isize::MIN).as_slice()));
+                       (::std::isize::MIN) -> bytes(&format!("i{}e", ::std::isize::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i8,
                        tobencode_zero_i8,
@@ -1360,14 +1356,14 @@ mod tests {
                        identity_positive_i8,
                        (5i8) -> bytes("i5e"),
                        (99i8) -> bytes("i99e"),
-                       (::std::i8::MAX) -> bytes(format!("i{}e", ::std::i8::MAX).as_slice()));
+                       (::std::i8::MAX) -> bytes(&format!("i{}e", ::std::i8::MAX)[..]));
 
     gen_complete_test!(encodes_negative_i8,
                        tobencode_negative_i8,
                        identity_negative_i8,
                        (-5i8) -> bytes("i-5e"),
                        (-99i8) -> bytes("i-99e"),
-                       (::std::i8::MIN) -> bytes(format!("i{}e", ::std::i8::MIN).as_slice()));
+                       (::std::i8::MIN) -> bytes(&format!("i{}e", ::std::i8::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i16,
                        tobencode_zero_i16,
@@ -1379,14 +1375,14 @@ mod tests {
                        identity_positive_i16,
                        (5i16) -> bytes("i5e"),
                        (99i16) -> bytes("i99e"),
-                       (::std::i16::MAX) -> bytes(format!("i{}e", ::std::i16::MAX).as_slice()));
+                       (::std::i16::MAX) -> bytes(&format!("i{}e", ::std::i16::MAX)[..]));
 
     gen_complete_test!(encodes_negative_i16,
                        tobencode_negative_i16,
                        identity_negative_i16,
                        (-5i16) -> bytes("i-5e"),
                        (-99i16) -> bytes("i-99e"),
-                       (::std::i16::MIN) -> bytes(format!("i{}e", ::std::i16::MIN).as_slice()));
+                       (::std::i16::MIN) -> bytes(&format!("i{}e", ::std::i16::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i32,
                        tobencode_zero_i32,
@@ -1398,14 +1394,14 @@ mod tests {
                        identity_positive_i32,
                        (5i32) -> bytes("i5e"),
                        (99i32) -> bytes("i99e"),
-                       (::std::i32::MAX) -> bytes(format!("i{}e", ::std::i32::MAX).as_slice()));
+                       (::std::i32::MAX) -> bytes(&format!("i{}e", ::std::i32::MAX)[..]));
 
     gen_complete_test!(encodes_negative_i32,
                        tobencode_negative_i32,
                        identity_negative_i32,
                        (-5i32) -> bytes("i-5e"),
                        (-99i32) -> bytes("i-99e"),
-                       (::std::i32::MIN) -> bytes(format!("i{}e", ::std::i32::MIN).as_slice()));
+                       (::std::i32::MIN) -> bytes(&format!("i{}e", ::std::i32::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i64,
                        tobencode_zero_i64,
@@ -1417,14 +1413,14 @@ mod tests {
                        identity_positive_i64,
                        (5i64) -> bytes("i5e"),
                        (99i64) -> bytes("i99e"),
-                       (::std::i64::MAX) -> bytes(format!("i{}e", ::std::i64::MAX).as_slice()));
+                       (::std::i64::MAX) -> bytes(&format!("i{}e", ::std::i64::MAX)[..]));
 
     gen_complete_test!(encodes_negative_i64,
                        tobencode_negative_i64,
                        identity_negative_i64,
                        (-5i64) -> bytes("i-5e"),
                        (-99i64) -> bytes("i-99e"),
-                       (::std::i64::MIN) -> bytes(format!("i{}e", ::std::i64::MIN).as_slice()));
+                       (::std::i64::MIN) -> bytes(&format!("i{}e", ::std::i64::MIN)[..]));
 
     gen_complete_test!(encodes_zero_usize,
                        tobencode_zero_usize,
@@ -1436,7 +1432,7 @@ mod tests {
                        identity_positive_usize,
                        (5us) -> bytes("i5e"),
                        (99us) -> bytes("i99e"),
-                       (::std::usize::MAX / 2) -> bytes(format!("i{}e", ::std::usize::MAX / 2).as_slice()));
+                       (::std::usize::MAX / 2) -> bytes(&format!("i{}e", ::std::usize::MAX / 2)[..]));
 
     gen_complete_test!(encodes_zero_u8,
                        tobencode_zero_u8,
@@ -1448,7 +1444,7 @@ mod tests {
                        identity_positive_u8,
                        (5u8) -> bytes("i5e"),
                        (99u8) -> bytes("i99e"),
-                       (::std::u8::MAX) -> bytes(format!("i{}e", ::std::u8::MAX).as_slice()));
+                       (::std::u8::MAX) -> bytes(&format!("i{}e", ::std::u8::MAX)[..]));
 
     gen_complete_test!(encodes_zero_u16,
                        tobencode_zero_u16,
@@ -1460,7 +1456,7 @@ mod tests {
                        identity_positive_u16,
                        (5u16) -> bytes("i5e"),
                        (99u16) -> bytes("i99e"),
-                       (::std::u16::MAX) -> bytes(format!("i{}e", ::std::u16::MAX).as_slice()));
+                       (::std::u16::MAX) -> bytes(&format!("i{}e", ::std::u16::MAX)[..]));
 
     gen_complete_test!(encodes_zero_u32,
                        tobencode_zero_u32,
@@ -1472,7 +1468,7 @@ mod tests {
                        identity_positive_u32,
                        (5u32) -> bytes("i5e"),
                        (99u32) -> bytes("i99e"),
-                       (::std::u32::MAX) -> bytes(format!("i{}e", ::std::u32::MAX).as_slice()));
+                       (::std::u32::MAX) -> bytes(&format!("i{}e", ::std::u32::MAX)[..]));
 
     gen_complete_test!(encodes_zero_u64,
                        tobencode_zero_u64,
@@ -1484,7 +1480,7 @@ mod tests {
                        identity_positive_u64,
                        (5u64) -> bytes("i5e"),
                        (99u64) -> bytes("i99e"),
-                       (::std::u64::MAX / 2) -> bytes(format!("i{}e", ::std::u64::MAX / 2).as_slice()));
+                       (::std::u64::MAX / 2) -> bytes(&format!("i{}e", ::std::u64::MAX / 2)[..]));
 
     gen_complete_test!(encodes_bool,
                        tobencode_bool,
@@ -1700,7 +1696,7 @@ mod tests {
             ab: 3,
             aa: 2
         };
-        assert_eq!(encode(&s), Ok(bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee")));
+        assert_eq!(encode(&s).unwrap(), bytes("d1:ai1e2:aai2e2:abi3e1:zi4ee"));
     }
 
     #[derive(RustcEncodable, RustcDecodable, Eq, PartialEq, Debug, Clone)]
@@ -1946,9 +1942,7 @@ mod tests {
 mod bench {
     extern crate test;
 
-    use self::test::Bencher;
-
-    use std::old_io;
+    use self::test::{Bencher, black_box};
 
     use rustc_serialize::{Encodable, Decodable};
 
@@ -1959,12 +1953,12 @@ mod bench {
     fn encode_large_vec_of_usize(bh: &mut Bencher) {
         let v: Vec<u32> = (0u32..100).collect();
         bh.iter(|| {
-            let mut w = old_io::MemWriter::with_capacity(v.len() * 10);
+            let mut w = Vec::with_capacity(v.len() * 10);
             {
                 let mut enc = Encoder::new(&mut w);
                 let _ = v.encode(&mut enc);
             }
-            w.into_inner()
+            black_box(w)
         });
         bh.bytes = v.len() as u64 * 4;
     }
