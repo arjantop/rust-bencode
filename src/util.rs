@@ -1,4 +1,5 @@
 use std::{str, fmt};
+use std::borrow::Borrow;
 
 use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
@@ -44,6 +45,14 @@ impl Encodable for ByteString {
     fn encode<S: serialize::Encoder>(&self, e: &mut S) -> Result<(), S::Error> {
         let &ByteString(ref key) = self;
         e.emit_str(unsafe { str::from_utf8_unchecked(&key[..]) })
+    }
+}
+
+impl Borrow<[u8]> for ByteString {
+    fn borrow(&self) -> &[u8] {
+        match self {
+            &ByteString(ref v)  => v.borrow()
+        }
     }
 }
 

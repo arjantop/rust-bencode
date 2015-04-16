@@ -108,12 +108,19 @@
 
   use std::collections::BTreeMap;
 
-  use bencode::{FromBencode, ToBencode, Bencode};
+  use bencode::{FromBencode, ToBencode, Bencode, NumFromBencodeError};
   use bencode::util::ByteString;
 
   #[derive(PartialEq)]
   struct MyStruct {
       a: i32
+  }
+
+  #[derive(Debug)]
+  enum MyError {
+      NotADict,
+      DoesntContainA,
+      ANotANumber(NumFromBencodeError),
   }
 
   impl ToBencode for MyStruct {
@@ -125,17 +132,20 @@
   }
 
   impl FromBencode for MyStruct {
-      fn from_bencode(bencode: &bencode::Bencode) -> Option<MyStruct> {
+      type Err = MyError;
+
+      fn from_bencode(bencode: &bencode::Bencode) -> Result<MyStruct, MyError> {
+          use MyError::*;
           match bencode {
               &Bencode::Dict(ref m) => {
                   match m.get(&ByteString::from_str("a")) {
                       Some(a) => FromBencode::from_bencode(a).map(|a| {
                           MyStruct{ a: a }
-                      }),
-                      _ => None
+                      }).map_err(ANotANumber),
+                      _ => Err(DoesntContainA)
                   }
               }
-              _ => None
+              _ => Err(NotADict)
           }
       }
   }
@@ -187,18 +197,23 @@
   ```
 */
 
-#![feature(core, std_misc, test)]
+#![cfg_attr(test, feature(test))]
 
 extern crate rustc_serialize;
+extern crate byteorder;
+extern crate num;
 
-use std::io::{self, Write};
+use std::io::{self, Write, Cursor};
 use std::fmt;
-use std::str;
+use std::str::{self, Utf8Error};
 use std::vec::Vec;
-use std::num::FromStrRadix;
+use std::mem::size_of;
 
 use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
+
+use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
+use num::FromPrimitive;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -305,7 +320,9 @@ pub trait ToBencode {
 }
 
 pub trait FromBencode {
-    fn from_bencode(&Bencode) -> Option<Self>;
+    type Err;
+
+    fn from_bencode(&Bencode) -> Result<Self, Self::Err>;
 }
 
 impl ToBencode for () {
@@ -315,16 +332,18 @@ impl ToBencode for () {
 }
 
 impl FromBencode for () {
-    fn from_bencode(bencode: &Bencode) -> Option<()> {
+    type Err = ();
+
+    fn from_bencode(bencode: &Bencode) -> Result<(), ()> {
         match bencode {
             &Bencode::ByteString(ref v) => {
                 if v.len() == 0 {
-                    Some(())
+                    Ok(())
                 } else {
-                    None
+                    Err(())
                 }
             }
-            _ => None
+            _ => Err(())
         }
     }
 }
@@ -339,11 +358,13 @@ impl<T: ToBencode> ToBencode for Option<T> {
 }
 
 impl<T: FromBencode> FromBencode for Option<T> {
-    fn from_bencode(bencode: &Bencode) -> Option<Option<T>> {
+    type Err = T::Err;
+
+    fn from_bencode(bencode: &Bencode) -> Result<Option<T>, T::Err> {
         match bencode {
             &Bencode::ByteString(ref v) => {
                 if v == b"nil" {
-                    return Some(None)
+                    return Ok(None)
                 }
             }
             _ => ()
@@ -357,12 +378,23 @@ macro_rules! derive_num_to_bencode(($t:ty) => (
     }
 ));
 
+#[derive(Debug)]
+pub enum NumFromBencodeError {
+    OutOfRange(i64),
+    InvalidType,
+}
+
 macro_rules! derive_num_from_bencode(($t:ty) => (
     impl FromBencode for $t {
-        fn from_bencode(bencode: &Bencode) -> Option<$t> {
+        type Err = NumFromBencodeError;
+
+        fn from_bencode(bencode: &Bencode) -> Result<$t, NumFromBencodeError> {
             match bencode {
-                &Bencode::Number(v) => Some(v as $t),
-                _ => None
+                &Bencode::Number(v) => match FromPrimitive::from_i64(v) {
+                    Some(n) => Ok(n),
+                    None    => Err(NumFromBencodeError::OutOfRange(v)),
+                },
+                _ => Err(NumFromBencodeError::InvalidType),
             }
         }
     }
@@ -400,40 +432,58 @@ derive_num_from_bencode!(u64);
 
 impl ToBencode for f32 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f32::to_str_hex(*self).into_bytes())
+        let mut buf: Vec<u8> = Vec::with_capacity(size_of::<f32>());
+        buf.write_f32::<BigEndian>(*self).unwrap();
+        Bencode::ByteString(buf)
     }
 }
 
+#[derive(Debug)]
+pub enum FloatFromBencodeError {
+    InvalidLen(usize),
+    InvalidType,
+}
+
 impl FromBencode for f32 {
-    fn from_bencode(bencode: &Bencode) -> Option<f32> {
+    type Err = FloatFromBencodeError;
+
+    fn from_bencode(bencode: &Bencode) -> Result<f32, FloatFromBencodeError> {
+        use FloatFromBencodeError::*;
         match bencode {
             &Bencode::ByteString(ref v)  => {
-                match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
-                    Err(..) => None
+                let len = v.len();
+                match len == size_of::<f32>() {
+                  true  => Ok(Cursor::new(&v[..]).read_f32::<BigEndian>().unwrap()),
+                  false => Err(InvalidLen(len)),
                 }
             }
-            _ => None
+            _ => Err(InvalidType),
         }
     }
 }
 
 impl ToBencode for f64 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f64::to_str_hex(*self).into_bytes())
+        let mut buf: Vec<u8> = Vec::with_capacity(size_of::<f64>());
+        buf.write_f64::<BigEndian>(*self).unwrap();
+        Bencode::ByteString(buf)
     }
 }
 
 impl FromBencode for f64 {
-    fn from_bencode(bencode: &Bencode) -> Option<f64> {
+    type Err = FloatFromBencodeError;
+
+    fn from_bencode(bencode: &Bencode) -> Result<f64, FloatFromBencodeError> {
+        use FloatFromBencodeError::*;
         match bencode {
             &Bencode::ByteString(ref v)  => {
-                match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
-                    Err(..) => None
+                let len = v.len();
+                match len == size_of::<f64>() {
+                  true  => Ok(Cursor::new(&v[..]).read_f64::<BigEndian>().unwrap()),
+                  false => Err(InvalidLen(len)),
                 }
             }
-            _ => None
+            _ => Err(InvalidType),
         }
     }
 }
@@ -448,19 +498,27 @@ impl ToBencode for bool {
     }
 }
 
+#[derive(Debug)]
+pub enum BoolFromBencodeError {
+    NotAString,
+    InvalidString(Vec<u8>),
+}
+
 impl FromBencode for bool {
-    fn from_bencode(bencode: &Bencode) -> Option<bool> {
+    type Err = BoolFromBencodeError;
+
+    fn from_bencode(bencode: &Bencode) -> Result<bool, BoolFromBencodeError> {
         match bencode {
             &Bencode::ByteString(ref v) => {
                 if v == b"true" {
-                    Some(true)
+                    Ok(true)
                 } else if v == b"false" {
-                    Some(false)
+                    Ok(false)
                 } else {
-                    None
+                    Err(BoolFromBencodeError::InvalidString(v.clone()))
                 }
             }
-            _ => None
+            _ => Err(BoolFromBencodeError::NotAString)
         }
     }
 }
@@ -471,16 +529,35 @@ impl ToBencode for char {
     }
 }
 
+#[derive(Debug)]
+pub enum CharFromBencodeError {
+    FromUtf8(Utf8Error),
+    EmptyString,
+    MultipleChars,
+    InvalidType,
+}
+
 impl FromBencode for char {
-    fn from_bencode(bencode: &Bencode) -> Option<char> {
-        let s: Option<String> = FromBencode::from_bencode(bencode);
-        s.and_then(|s| {
-            if s.chars().count() == 1 {
-                Some(s.chars().next().unwrap())
-            } else {
-                None
+    type Err = CharFromBencodeError;
+
+    fn from_bencode(bencode: &Bencode) -> Result<char, CharFromBencodeError> {
+        let s: Result<String, StringFromBencodeError> = FromBencode::from_bencode(bencode);
+        match s {
+            Ok(s) => {
+                let mut it = s.chars();
+                match it.next() {
+                    None  => Err(CharFromBencodeError::EmptyString),
+                    Some(c) => match it.next() {
+                        None    => Ok(c),
+                        Some(_) => Err(CharFromBencodeError::MultipleChars),
+                    }
+                }
+            },
+            Err(e)  => match e {
+                StringFromBencodeError::FromUtf8(e) => Err(CharFromBencodeError::FromUtf8(e)),
+                StringFromBencodeError::InvalidType => Err(CharFromBencodeError::InvalidType),
             }
-        })
+        }
     }
 }
 
@@ -488,11 +565,20 @@ impl ToBencode for String {
     fn to_bencode(&self) -> Bencode { Bencode::ByteString(self.as_bytes().to_vec()) }
 }
 
+#[derive(Debug)]
+pub enum StringFromBencodeError {
+    FromUtf8(Utf8Error),
+    InvalidType,
+}
+
 impl FromBencode for String {
-    fn from_bencode(bencode: &Bencode) -> Option<String> {
+    type Err = StringFromBencodeError;
+
+    fn from_bencode(bencode: &Bencode) -> Result<String, StringFromBencodeError> {
+        use StringFromBencodeError::*;
         match bencode {
-            &Bencode::ByteString(ref v) => std::str::from_utf8(v).map(|s| s.to_string()).ok(),
-            _ => None
+            &Bencode::ByteString(ref v) => std::str::from_utf8(v).map(|s| s.to_string()).map_err(FromUtf8),
+            _ => Err(InvalidType),
         }
     }
 }
@@ -501,20 +587,28 @@ impl<T: ToBencode> ToBencode for Vec<T> {
     fn to_bencode(&self) -> Bencode { Bencode::List(self.iter().map(|e| e.to_bencode()).collect()) }
 }
 
+#[derive(Debug)]
+pub enum VecFromBencodeError<E> {
+    Underlying(E),
+    InvalidType,
+}
+
 impl<T: FromBencode> FromBencode for Vec<T> {
-    fn from_bencode(bencode: &Bencode) -> Option<Vec<T>> {
+    type Err = VecFromBencodeError<T::Err>;
+
+    fn from_bencode(bencode: &Bencode) -> Result<Vec<T>, VecFromBencodeError<T::Err>> {
         match bencode {
             &Bencode::List(ref es) => {
                 let mut list = Vec::new();
                 for e in es.iter() {
                     match FromBencode::from_bencode(e) {
-                        Some(v) => list.push(v),
-                        None => return None
+                        Ok(v) => list.push(v),
+                        Err(e) => return Err(VecFromBencodeError::Underlying(e)),
                     }
                 }
-                Some(list)
+                Ok(list)
             }
-            _ => None
+            _ => Err(VecFromBencodeError::InvalidType),
         }
     }
 }
@@ -529,6 +623,13 @@ macro_rules! map_to_bencode {
     }}
 }
 
+#[derive(Debug)]
+pub enum MapFromBencodeError<E> {
+    Underlying(E),
+    KeyInvalidUtf8(Utf8Error),
+    InvalidType,
+}
+
 macro_rules! map_from_bencode {
     ($mty:ident, $bencode:expr) => {{
         let res = match $bencode {
@@ -537,18 +638,18 @@ macro_rules! map_from_bencode {
                 for (key, value) in map.iter() {
                     match str::from_utf8(key.as_slice()) {
                         Ok(k) => {
-                            let val: Option<T> = FromBencode::from_bencode(value);
+                            let val: Result<T, T::Err> = FromBencode::from_bencode(value);
                             match val {
-                                Some(v) => m.insert(k.to_string(), v),
-                                None => return None
+                                Ok(v) => m.insert(k.to_string(), v),
+                                Err(e) => return Err(MapFromBencodeError::Underlying(e)),
                             }
                         }
-                        Err(..) => return None
+                        Err(e) => return Err(MapFromBencodeError::KeyInvalidUtf8(e)),
                     };
                 }
-                Some(m)
+                Ok(m)
             }
-            _ => None
+            _ => Err(MapFromBencodeError::InvalidType),
         };
         res
     }}
@@ -561,7 +662,8 @@ impl<T: ToBencode> ToBencode for BTreeMap<String, T> {
 }
 
 impl<T: FromBencode> FromBencode for BTreeMap<String, T> {
-    fn from_bencode(bencode: &Bencode) -> Option<BTreeMap<String, T>> {
+    type Err = MapFromBencodeError<T::Err>;
+    fn from_bencode(bencode: &Bencode) -> Result<BTreeMap<String, T>, MapFromBencodeError<T::Err>> {
         map_from_bencode!(BTreeMap, bencode)
     }
 }
@@ -573,7 +675,8 @@ impl<T: ToBencode> ToBencode for HashMap<String, T> {
 }
 
 impl<T: FromBencode> FromBencode for HashMap<String, T> {
-    fn from_bencode(bencode: &Bencode) -> Option<HashMap<String, T>> {
+    type Err = MapFromBencodeError<T::Err>;
+    fn from_bencode(bencode: &Bencode) -> Result<HashMap<String, T>, MapFromBencodeError<T::Err>> {
         map_from_bencode!(HashMap, bencode)
     }
 }
@@ -653,6 +756,16 @@ impl<'a> Encoder<'a> {
         write!(self.get_writer(), "e")
     }
 
+    fn encode_bytestring(&mut self, v: &[u8]) -> EncoderResult<()> {
+        if self.expect_key {
+            self.keys.push(util::ByteString::from_slice(v));
+            Ok(())
+        } else {
+            try!(write!(self.get_writer(), "{}:", v.len()));
+            self.get_writer().write_all(v)
+        }
+    }
+
     fn error(&mut self, msg: &'static str) -> EncoderResult<()> {
         Err(io::Error::new(io::ErrorKind::InvalidInput, msg))
     }
@@ -700,27 +813,25 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_f32(&mut self, v: f32) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(&std::f32::to_str_hex(v))
+        let mut buf = [0u8; 4];
+        Cursor::new(&mut buf[..]).write_f32::<BigEndian>(v).unwrap();
+        self.encode_bytestring(&buf[..])
     }
 
     fn emit_f64(&mut self, v: f64) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(&std::f64::to_str_hex(v))
+        let mut buf = [0u8; 8];
+        Cursor::new(&mut buf[..]).write_f64::<BigEndian>(v).unwrap();
+        self.encode_bytestring(&buf[..])
     }
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(&v.to_string())
+        self.encode_bytestring(&v.to_string().as_bytes())
     }
 
     fn emit_str(&mut self, v: &str) -> EncoderResult<()> {
-        if self.expect_key {
-            self.keys.push(util::ByteString::from_slice(v.as_bytes()));
-            Ok(())
-        } else {
-            try!(write!(self.get_writer(), "{}:", v.len()));
-            self.get_writer().write_all(v.as_bytes())
-        }
+        self.encode_bytestring(v.as_bytes())
     }
 
     fn emit_enum<F>(&mut self, _name: &str, _f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
@@ -964,7 +1075,7 @@ impl<'a> Decoder<'a> {
 
     fn try_read<T: FromBencode>(&mut self, ty: &'static str) -> DecoderResult<T> {
         let val = self.stack.pop();
-        match val.and_then(|b| FromBencode::from_bencode(b)) {
+        match val.and_then(|b| FromBencode::from_bencode(b).ok()) {
             Some(v) => Ok(v),
             None => Err(Message(format!("Error decoding value as '{}': {:?}", ty, val)))
         }
@@ -1306,14 +1417,14 @@ mod tests {
     gen_complete_test!(encodes_option_some,
                        tobencode_option_some,
                        identity_option_some,
-                       (Some(1is)) -> bytes("i1e"),
+                       (Some(1isize)) -> bytes("i1e"),
                        (Some("rust".to_string())) -> bytes("4:rust"),
                        (Some(vec![(), ()])) -> bytes("l0:0:e"));
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
-                       (Some(Some(1is))) -> bytes("i1e"),
+                       (Some(Some(1isize))) -> bytes("i1e"),
                        (Some(Some("rust".to_string()))) -> bytes("4:rust"));
 
     #[test]
@@ -1330,20 +1441,20 @@ mod tests {
     gen_complete_test!(encodes_zero_isize,
                        tobencode_zero_isize,
                        identity_zero_isize,
-                       (0is) -> bytes("i0e"));
+                       (0isize) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_isize,
                        tobencode_positive_isize,
                        identity_positive_isize,
-                       (5is) -> bytes("i5e"),
-                       (99is) -> bytes("i99e"),
+                       (5isize) -> bytes("i5e"),
+                       (99isize) -> bytes("i99e"),
                        (::std::isize::MAX) -> bytes(&format!("i{}e", ::std::isize::MAX)[..]));
 
     gen_complete_test!(encodes_negative_isize,
                        tobencode_negative_isize,
                        identity_negative_isize,
-                       (-5is) -> bytes("i-5e"),
-                       (-99is) -> bytes("i-99e"),
+                       (-5isize) -> bytes("i-5e"),
+                       (-99isize) -> bytes("i-99e"),
                        (::std::isize::MIN) -> bytes(&format!("i{}e", ::std::isize::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i8,
@@ -1425,13 +1536,13 @@ mod tests {
     gen_complete_test!(encodes_zero_usize,
                        tobencode_zero_usize,
                        identity_zero_usize,
-                       (0us) -> bytes("i0e"));
+                       (0usize) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_usize,
                        tobencode_positive_usize,
                        identity_positive_usize,
-                       (5us) -> bytes("i5e"),
-                       (99us) -> bytes("i99e"),
+                       (5usize) -> bytes("i5e"),
+                       (99usize) -> bytes("i99e"),
                        (::std::usize::MAX / 2) -> bytes(&format!("i{}e", ::std::usize::MAX / 2)[..]));
 
     gen_complete_test!(encodes_zero_u8,
@@ -1491,36 +1602,36 @@ mod tests {
     gen_complete_test!(encodes_zero_f32,
                        tobencode_zero_f32,
                        identity_zero_f32,
-                       (0.0f32) -> bytes("1:0"));
+                       (0.0f32) -> vec![b'4', b':', 0, 0, 0, 0]);
 
     gen_complete_test!(encodes_positive_f32,
                        tobencode_positive_f32,
                        identity_positive_f32,
-                       (99.0f32) -> bytes("2:63"),
-                       (101.12345f32) -> bytes("8:65.1f9a8"));
+                       (99.0f32) -> vec![b'4', b':', 0x42, 0xc6, 0x0, 0x0],
+                       (101.12345f32) -> vec![b'4', b':', 0x42, 0xca, 0x3f, 0x35]);
 
     gen_complete_test!(encodes_negative_f32,
                        tobencode_negative_f32,
                        identity_negative_f32,
-                       (-99.0f32) -> bytes("3:-63"),
-                       (-101.12345f32) -> bytes("9:-65.1f9a8"));
+                       (-99.0f32) -> vec![b'4', b':', 0xc2, 0xc6, 0, 0],
+                       (-101.12345f32) -> vec![b'4', b':', 0xc2, 0xca, 0x3f, 0x35]);
 
     gen_complete_test!(encodes_zero_f64,
                        tobencode_zero_f64,
                        identity_zero_f64,
-                       (0.0f64) -> bytes("1:0"));
+                       (0.0f64) -> vec![b'8', b':', 0, 0, 0, 0, 0, 0, 0, 0]);
 
     gen_complete_test!(encodes_positive_f64,
                        tobencode_positive_f64,
                        identity_positive_f64,
-                       (99.0f64) -> bytes("2:63"),
-                       (101.12345f64) -> bytes("15:65.1f9a6b50b0f4"));
+                       (99.0f64) -> vec![b'8', b':', 0x40, 0x58, 0xc0, 0x0, 0x0, 0x0, 0x0, 0x0],
+                       (101.12345f64) -> vec![b'8', b':', 0x40, 0x59, 0x47, 0xe6, 0x9a, 0xd4, 0x2c, 0x3d]);
 
     gen_complete_test!(encodes_negative_f64,
                        tobencode_negative_f64,
                        identity_negative_f64,
-                       (-99.0f64) -> bytes("3:-63"),
-                       (-101.12345f64) -> bytes("16:-65.1f9a6b50b0f4"));
+                       (-99.0f64) -> vec![b'8', b':', 0xc0, 0x58, 0xc0, 0, 0, 0, 0, 0],
+                       (-101.12345f64) -> vec![b'8', b':', 0xc0, 0x59, 0x47, 0xe6, 0x9a, 0xd4, 0x2c, 0x3d]);
 
     gen_complete_test!(encodes_lower_letter_char,
                        tobencode_lower_letter_char,
@@ -1578,13 +1689,13 @@ mod tests {
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       (vec![0is, 1is, 3is, 4is]) -> bytes("li0ei1ei3ei4ee"),
+                       (vec![0isize, 1isize, 3isize, 4isize]) -> bytes("li0ei1ei3ei4ee"),
                        (vec!["foo".to_string(), "b".to_string()]) -> bytes("l3:foo1:be"));
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       (vec![vec![1is], vec![2is, 3is], vec![]]) -> bytes("lli1eeli2ei3eelee"));
+                       (vec![vec![1isize], vec![2isize, 3isize], vec![]]) -> bytes("lli1eeli2ei3eelee"));
 
     #[derive(Eq, PartialEq, Debug, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
@@ -1622,7 +1733,7 @@ mod tests {
                                   is_true: true,
                                   inner: vec![InnerStruct {
                                       field_one: (),
-                                      list: vec![99us, 5us],
+                                      list: vec![99usize, 5usize],
                                       abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
@@ -1659,13 +1770,13 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       (map!(HashMap, ("a".to_string(), 1is))) -> bytes("d1:ai1ee"),
+                       (map!(HashMap, ("a".to_string(), 1isize))) -> bytes("d1:ai1ee"),
                        (map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string()))) -> bytes("d3:bar2:bb3:foo1:ae"));
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101is), ("bar".to_string(), 102is))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
+                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101isize), ("bar".to_string(), 102isize))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Bencode::Dict(map!(BTreeMap, (util::ByteString::from_vec(bytes("foo")), Bencode::ByteString(bytes("bar")))));
@@ -1676,7 +1787,7 @@ mod tests {
 
     #[test]
     fn encode_error_on_wrong_map_key_type() {
-        let m = map!(HashMap, (1is, "foo"));
+        let m = map!(HashMap, (1isize, "foo"));
         let encoded = encode(&m);
         assert!(encoded.is_err())
     }
