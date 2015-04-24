@@ -187,7 +187,7 @@
   ```
 */
 
-#![feature(core, std_misc, test)]
+#![feature(core, std_misc, test, float_from_str_radix)]
 
 extern crate rustc_serialize;
 
@@ -195,7 +195,6 @@ use std::io::{self, Write};
 use std::fmt;
 use std::str;
 use std::vec::Vec;
-use std::num::FromStrRadix;
 
 use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
@@ -400,7 +399,7 @@ derive_num_from_bencode!(u64);
 
 impl ToBencode for f32 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f32::to_str_hex(*self).into_bytes())
+        Bencode::ByteString(format!("{}", *self).into_bytes())
     }
 }
 
@@ -409,7 +408,7 @@ impl FromBencode for f32 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
+                    Ok(s) => f32::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
@@ -420,7 +419,7 @@ impl FromBencode for f32 {
 
 impl ToBencode for f64 {
     fn to_bencode(&self) -> Bencode {
-        Bencode::ByteString(std::f64::to_str_hex(*self).into_bytes())
+        Bencode::ByteString(format!("{}", *self).into_bytes())
     }
 }
 
@@ -429,7 +428,7 @@ impl FromBencode for f64 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
+                    Ok(s) => f64::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
@@ -700,12 +699,12 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_f32(&mut self, v: f32) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(&std::f32::to_str_hex(v))
+        self.emit_str(&format!("{}", v))
     }
 
     fn emit_f64(&mut self, v: f64) -> EncoderResult<()> {
         expect_value!(self);
-        self.emit_str(&std::f64::to_str_hex(v))
+        self.emit_str(&format!("{}", v))
     }
 
     fn emit_char(&mut self, v: char) -> EncoderResult<()> {
