@@ -1306,14 +1306,14 @@ mod tests {
     gen_complete_test!(encodes_option_some,
                        tobencode_option_some,
                        identity_option_some,
-                       (Some(1is)) -> bytes("i1e"),
+                       (Some(1isize)) -> bytes("i1e"),
                        (Some("rust".to_string())) -> bytes("4:rust"),
                        (Some(vec![(), ()])) -> bytes("l0:0:e"));
 
     gen_complete_test!(encodes_nested_option,
                        tobencode_nested_option,
                        identity_nested_option,
-                       (Some(Some(1is))) -> bytes("i1e"),
+                       (Some(Some(1isize))) -> bytes("i1e"),
                        (Some(Some("rust".to_string()))) -> bytes("4:rust"));
 
     #[test]
@@ -1330,20 +1330,20 @@ mod tests {
     gen_complete_test!(encodes_zero_isize,
                        tobencode_zero_isize,
                        identity_zero_isize,
-                       (0is) -> bytes("i0e"));
+                       (0isize) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_isize,
                        tobencode_positive_isize,
                        identity_positive_isize,
-                       (5is) -> bytes("i5e"),
-                       (99is) -> bytes("i99e"),
+                       (5isize) -> bytes("i5e"),
+                       (99isize) -> bytes("i99e"),
                        (::std::isize::MAX) -> bytes(&format!("i{}e", ::std::isize::MAX)[..]));
 
     gen_complete_test!(encodes_negative_isize,
                        tobencode_negative_isize,
                        identity_negative_isize,
-                       (-5is) -> bytes("i-5e"),
-                       (-99is) -> bytes("i-99e"),
+                       (-5isize) -> bytes("i-5e"),
+                       (-99isize) -> bytes("i-99e"),
                        (::std::isize::MIN) -> bytes(&format!("i{}e", ::std::isize::MIN)[..]));
 
     gen_complete_test!(encodes_zero_i8,
@@ -1425,13 +1425,13 @@ mod tests {
     gen_complete_test!(encodes_zero_usize,
                        tobencode_zero_usize,
                        identity_zero_usize,
-                       (0us) -> bytes("i0e"));
+                       (0usize) -> bytes("i0e"));
 
     gen_complete_test!(encodes_positive_usize,
                        tobencode_positive_usize,
                        identity_positive_usize,
-                       (5us) -> bytes("i5e"),
-                       (99us) -> bytes("i99e"),
+                       (5usize) -> bytes("i5e"),
+                       (99usize) -> bytes("i99e"),
                        (::std::usize::MAX / 2) -> bytes(&format!("i{}e", ::std::usize::MAX / 2)[..]));
 
     gen_complete_test!(encodes_zero_u8,
@@ -1578,13 +1578,13 @@ mod tests {
     gen_complete_test!(encodes_nonmpty_vec,
                        tobencode_nonmpty_vec,
                        identity_nonmpty_vec,
-                       (vec![0is, 1is, 3is, 4is]) -> bytes("li0ei1ei3ei4ee"),
+                       (vec![0isize, 1isize, 3isize, 4isize]) -> bytes("li0ei1ei3ei4ee"),
                        (vec!["foo".to_string(), "b".to_string()]) -> bytes("l3:foo1:be"));
 
     gen_complete_test!(encodes_nested_vec,
                        tobencode_nested_vec,
                        identity_nested_vec,
-                       (vec![vec![1is], vec![2is, 3is], vec![]]) -> bytes("lli1eeli2ei3eelee"));
+                       (vec![vec![1isize], vec![2isize, 3isize], vec![]]) -> bytes("lli1eeli2ei3eelee"));
 
     #[derive(Eq, PartialEq, Debug, RustcEncodable, RustcDecodable)]
     struct SimpleStruct {
@@ -1622,7 +1622,7 @@ mod tests {
                                   is_true: true,
                                   inner: vec![InnerStruct {
                                       field_one: (),
-                                      list: vec![99us, 5us],
+                                      list: vec![99usize, 5usize],
                                       abc: "rust".to_string()
                                   }, InnerStruct {
                                       field_one: (),
@@ -1659,13 +1659,13 @@ mod tests {
     gen_complete_test!(encodes_hashmap,
                        bencode_hashmap,
                        identity_hashmap,
-                       (map!(HashMap, ("a".to_string(), 1is))) -> bytes("d1:ai1ee"),
+                       (map!(HashMap, ("a".to_string(), 1isize))) -> bytes("d1:ai1ee"),
                        (map!(HashMap, ("foo".to_string(), "a".to_string()), ("bar".to_string(), "bb".to_string()))) -> bytes("d3:bar2:bb3:foo1:ae"));
 
     gen_complete_test!(encodes_nested_hashmap,
                        bencode_nested_hashmap,
                        identity_nested_hashmap,
-                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101is), ("bar".to_string(), 102is))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
+                       (map!(HashMap, ("a".to_string(), map!(HashMap, ("foo".to_string(), 101isize), ("bar".to_string(), 102isize))))) -> bytes("d1:ad3:bari102e3:fooi101eee"));
     #[test]
     fn decode_error_on_wrong_map_key_type() {
         let benc = Bencode::Dict(map!(BTreeMap, (util::ByteString::from_vec(bytes("foo")), Bencode::ByteString(bytes("bar")))));
@@ -1676,7 +1676,7 @@ mod tests {
 
     #[test]
     fn encode_error_on_wrong_map_key_type() {
-        let m = map!(HashMap, (1is, "foo"));
+        let m = map!(HashMap, (1isize, "foo"));
         let encoded = encode(&m);
         assert!(encoded.is_err())
     }
