@@ -187,7 +187,7 @@
   ```
 */
 
-#![feature(core, std_misc, test)]
+#![feature(core, std_misc, test, float_from_str_radix)]
 
 extern crate rustc_serialize;
 
@@ -195,7 +195,6 @@ use std::io::{self, Write};
 use std::fmt;
 use std::str;
 use std::vec::Vec;
-use std::num::FromStrRadix;
 
 use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
@@ -409,7 +408,7 @@ impl FromBencode for f32 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
+                    Ok(s) => f32::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
@@ -429,7 +428,7 @@ impl FromBencode for f64 {
         match bencode {
             &Bencode::ByteString(ref v)  => {
                 match str::from_utf8(v) {
-                    Ok(s) => FromStrRadix::from_str_radix(s, 16).ok(),
+                    Ok(s) => f64::from_str_radix(s, 16).ok(),
                     Err(..) => None
                 }
             }
