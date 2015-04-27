@@ -17,3 +17,6 @@ name = "bencode"
 [dependencies]
 
 rustc-serialize = "~0.3.0"
+byteorder = "*"
+num = "*"
+
