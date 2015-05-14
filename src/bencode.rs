@@ -197,7 +197,7 @@
   ```
 */
 
-#![cfg_attr(test, feature(test))]
+#![cfg_attr(all(test, feature = "nightly"), feature(test))]
 
 extern crate rustc_serialize;
 extern crate byteorder;
@@ -2049,7 +2049,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "nightly"))]
 mod bench {
     extern crate test;
 

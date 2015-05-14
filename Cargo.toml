@@ -10,6 +10,10 @@ description = "Bencode library for easy encoding/decoding"
 documentation = "http://www.rust-ci.org/arjantop/rust-bencode/doc/bencode/"
 keywords = ["bencode", "encoding", "decoding"]
 
+[features]
+
+nightly = []
+
 [lib]
 
 name = "bencode"
