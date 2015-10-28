@@ -319,7 +319,7 @@ pub trait ToBencode {
     fn to_bencode(&self) -> Bencode;
 }
 
-pub trait FromBencode {
+pub trait FromBencode where Self: Sized {
     type Err;
 
     fn from_bencode(&Bencode) -> Result<Self, Self::Err>;
