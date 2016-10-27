@@ -1,7 +1,7 @@
 [package]
 
 name = "bencode"
-version = "0.1.12"
+version = "0.1.13"
 authors = ["Arjan Topolovec <arjan.top@gmail.com>"]
 license = "MIT/Apache-2.0"
 homepage = "https://github.com/arjantop/rust-bencode"
@@ -20,7 +20,7 @@ name = "bencode"
 
 [dependencies]
 
-rustc-serialize = "~0.3.0"
-byteorder = "*"
-num = "*"
+rustc-serialize = "0.3"
+byteorder = "0.5"
+num = "0.1"
 
