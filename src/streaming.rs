@@ -132,6 +132,24 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
                     self.next_byte();
                 }
             }
+            _ => return self.error("1-9".to_string())
+        };
+        Ok(num)
+    }
+
+    #[inline(always)]
+    fn parse_length_digits(&mut self, sign: i64) -> Result<i64, Error> {
+        let mut num = 0;
+        match self.curr_char() {
+            Some('0' ... '9') => {
+                loop {
+                    match self.curr_char() {
+                        Some(ch @ '0' ... '9') => self.parse_digit(ch, sign, &mut num),
+                        _ => break
+                    }
+                    self.next_byte();
+                }
+            }
             _ => return self.error("0-9".to_string())
         };
         Ok(num)
@@ -144,7 +162,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
 
     #[inline(always)]
     fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
-        let len = try!(self.parse_number_digits(1));
+        let len = try!(self.parse_length_digits(1));
         expect!(self, ':', ":".to_string());
         let bytes = try!(self.next_bytes(len as usize));
         Ok(bytes)
@@ -324,7 +342,7 @@ mod test {
 
     #[test]
     fn parse_error_on_empty_number() {
-        assert_stream_eq("ie", &[ParseError(Error{ pos: 1, msg: "Expecting '0-9' but got 'e'".to_string() })]);
+        assert_stream_eq("ie", &[ParseError(Error{ pos: 1, msg: "Expecting '1-9' but got 'e'".to_string() })]);
     }
 
     #[test]
@@ -345,6 +363,11 @@ mod test {
     #[test]
     fn parses_short_bytestring() {
         assert_stream_eq("6:abcdef", &[ByteStringValue(bytes("abcdef"))]);
+    }
+
+    #[test]
+    fn parses_short_bytestring_length_pad() {
+        assert_stream_eq("06:abcdef", &[ByteStringValue(bytes("abcdef"))]);
     }
 
     #[test]
