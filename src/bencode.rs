@@ -201,7 +201,7 @@
 
 extern crate rustc_serialize;
 extern crate byteorder;
-extern crate num;
+extern crate num_traits;
 
 use std::io::{self, Write, Cursor};
 use std::fmt;
@@ -213,7 +213,7 @@ use rustc_serialize as serialize;
 use rustc_serialize::Encodable;
 
 use byteorder::{ReadBytesExt, WriteBytesExt, BigEndian};
-use num::FromPrimitive;
+use num_traits::FromPrimitive;
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
