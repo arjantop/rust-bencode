@@ -295,7 +295,7 @@ mod test {
 
     #[test]
     fn parse_error_on_invalid_first_character() {
-        for n in (::std::u8::MIN..::std::u8::MAX) {
+        for n in ::std::u8::MIN..::std::u8::MAX {
             match n as char {
                 'i' | '0' ... '9' | 'l' | 'd' | 'e' => continue,
                 _ => {}

@@ -203,7 +203,7 @@ extern crate rustc_serialize;
 extern crate byteorder;
 extern crate num_traits;
 
-use std::io::{self, Write, Cursor};
+use std::io::{self, Cursor};
 use std::fmt;
 use std::str::{self, Utf8Error};
 use std::vec::Vec;
@@ -222,7 +222,7 @@ use streaming::{StreamingParser, Error};
 use streaming::BencodeEvent;
 use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
                               DictStart, DictKey, DictEnd, ParseError};
-use self::Bencode::{Empty, Number, ByteString, List, Dict};
+use self::Bencode::*;
 use self::DecoderError::{Message, Unimplemented, Expecting, StringEncoding};
 
 pub mod streaming;
@@ -976,8 +976,8 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         let res = match current {
             Some(NumberValue(v)) => Ok(Bencode::Number(v)),
             Some(ByteStringValue(v)) => Ok(Bencode::ByteString(v)),
-            Some(ListStart) => self.parse_list(current),
-            Some(DictStart) => self.parse_dict(current),
+            Some(ListStart) => self.parse_list(),
+            Some(DictStart) => self.parse_dict(),
             Some(ParseError(err)) => Err(err),
             None => Ok(Empty),
             x => panic!("[root] Unreachable but got {:?}", x)
@@ -999,11 +999,11 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         }
     }
 
-    fn parse_list(&mut self, mut current: Option<BencodeEvent>) -> Result<Bencode, Error> {
+    fn parse_list(&mut self) -> Result<Bencode, Error> {
         self.depth += 1;
         let mut list = Vec::new();
         loop {
-            current = self.reader.next();
+            let current = self.reader.next();
             match current {
                 Some(ListEnd) => break,
                 Some(ParseError(err)) => return Err(err),
@@ -1020,11 +1020,11 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         Ok(Bencode::List(list))
     }
 
-    fn parse_dict(&mut self, mut current: Option<BencodeEvent>) -> Result<Bencode, Error> {
+    fn parse_dict(&mut self) -> Result<Bencode, Error> {
         self.depth += 1;
         let mut map = BTreeMap::new();
         loop {
-            current = self.reader.next();
+            let mut current = self.reader.next();
             let key = match current {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => util::ByteString::from_vec(v),
@@ -1322,7 +1322,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::collections::HashMap;
 
-    use rustc_serialize::{Encodable, Decodable};
+    use rustc_serialize::Decodable;
 
     use streaming::Error;
     use streaming::BencodeEvent;
