@@ -4,6 +4,10 @@
 
 Implementation of Bencode encoding written in rust.
 
+## Project Status
+
+Not in active developement due to lack of time and other priorities. If you are interested in taking over the developement of this crate please contact me.
+
 ## What is Bencode?
 
 It is the encoding used by the [BitTorrent](https://en.wikipedia.org/wiki/BitTorrent_%28protocol%29) file sharing system. More on [wikipedia](https://en.wikipedia.org/wiki/Bencode).
