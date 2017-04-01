@@ -20,7 +20,7 @@ git = "https://github.com/arjantop/rust-bencode.git"
 
 ## Documentation
 
-On [docs.rd](https://docs.rs/crate/bencode)
+On [docs.rs](https://docs.rs/crate/bencode)
 
 ## Contributing
 
