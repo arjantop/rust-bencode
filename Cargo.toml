@@ -14,7 +14,7 @@ keywords = ["bencode", "encoding", "decoding"]
 
 nightly = []
 
-[lib]
+[[lib]]
 
 name = "bencode"
 
