@@ -113,7 +113,7 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
             }
             _ => 1
         };
-        let num = try!(self.parse_number_digits(sign));
+        let num = self.parse_number_digits(sign)?;
         expect!(self, 'e', "e".to_string());
         Ok(num)
     }
@@ -123,10 +123,10 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
         let mut num = 0;
         match self.curr_char() {
             Some('0') => self.next_byte(),
-            Some('1' ... '9') => {
+            Some('1' ..= '9') => {
                 loop {
                     match self.curr_char() {
-                        Some(ch @ '0' ... '9') => self.parse_digit(ch, sign, &mut num),
+                        Some(ch @ '0' ..= '9') => self.parse_digit(ch, sign, &mut num),
                         _ => break
                     }
                     self.next_byte();
@@ -141,10 +141,10 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
     fn parse_length_digits(&mut self, sign: i64) -> Result<i64, Error> {
         let mut num = 0;
         match self.curr_char() {
-            Some('0' ... '9') => {
+            Some('0' ..= '9') => {
                 loop {
                     match self.curr_char() {
-                        Some(ch @ '0' ... '9') => self.parse_digit(ch, sign, &mut num),
+                        Some(ch @ '0' ..= '9') => self.parse_digit(ch, sign, &mut num),
                         _ => break
                     }
                     self.next_byte();
@@ -162,9 +162,9 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
 
     #[inline(always)]
     fn parse_bytestring(&mut self) -> Result<Vec<u8>, Error> {
-        let len = try!(self.parse_length_digits(1));
+        let len = self.parse_length_digits(1)?;
         expect!(self, ':', ":".to_string());
-        let bytes = try!(self.next_bytes(len as usize));
+        let bytes = self.next_bytes(len as usize)?;
         Ok(bytes)
     }
 
@@ -184,9 +184,9 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
     fn parse_key(&mut self) -> Result<BencodeEvent, Error> {
         check_nesting!(self);
         match self.curr_char() {
-            Some('0' ... '9') => {
+            Some('0' ..= '9') => {
                 self.decoded += 1;
-                let res = try!(self.parse_bytestring());
+                let res = self.parse_bytestring()?;
                 Ok(DictKey(res))
             }
             Some('e') => self.parse_end(),
@@ -201,13 +201,13 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
                 check_nesting!(self);
                 self.next_byte();
                 self.decoded += 1;
-                let res = try!(self.parse_number());
+                let res = self.parse_number()?;
                 Ok(NumberValue(res))
             }
-            Some('0' ... '9') => {
+            Some('0' ..= '9') => {
                 check_nesting!(self);
                 self.decoded += 1;
-                let res = try!(self.parse_bytestring());
+                let res = self.parse_bytestring()?;
                 Ok(ByteStringValue(res))
             }
             Some('l') => {
@@ -295,9 +295,9 @@ mod test {
 
     #[test]
     fn parse_error_on_invalid_first_character() {
-        for n in ::std::u8::MIN..::std::u8::MAX {
+        for n in u8::MIN..u8::MAX {
             match n as char {
-                'i' | '0' ... '9' | 'l' | 'd' | 'e' => continue,
+                'i' | '0' ..= '9' | 'l' | 'd' | 'e' => continue,
                 _ => {}
             };
             let msg = format!("Expecting 'i or 0-9 or l or d or e' but got '{}'", alphanum_to_str(n as char));
@@ -321,13 +321,13 @@ mod test {
     #[test]
     fn parses_positive_numbers() {
         assert_stream_eq("i5e", &[NumberValue(5)]);
-        assert_stream_eq(&format!("i{}e", ::std::i64::MAX)[..], &[NumberValue(::std::i64::MAX)]);
+        assert_stream_eq(&format!("i{}e", i64::MAX)[..], &[NumberValue(i64::MAX)]);
     }
 
     #[test]
     fn parses_negative_numbers() {
         assert_stream_eq("i-5e", &[NumberValue(-5)]);
-        assert_stream_eq(&format!("i{}e", ::std::i64::MIN)[..], &[NumberValue(::std::i64::MIN)]);
+        assert_stream_eq(&format!("i{}e", i64::MIN)[..], &[NumberValue(i64::MIN)]);
     }
 
     #[test]

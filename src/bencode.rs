@@ -257,28 +257,28 @@ fn format(fmt: &mut fmt::Formatter, v: &Bencode) -> fmt::Result {
         Bencode::Number(v) => write!(fmt, "{}", v),
         Bencode::ByteString(ref v) => fmt_bytestring(v, fmt),
         Bencode::List(ref v) => {
-            try!(write!(fmt, "["));
+            write!(fmt, "[")?;
             let mut first = true;
             for value in v.iter() {
                 if first {
                     first = false;
                 } else {
-                    try!(write!(fmt, ", "));
+                    write!(fmt, ", ")?;
                 }
-                try!(write!(fmt, "{}", *value));
+                write!(fmt, "{}", *value)?;
             }
             write!(fmt, "]")
         }
         Bencode::Dict(ref v) => {
-            try!(write!(fmt, "{{"));
+            write!(fmt, "{{")?;
             let mut first = true;
             for (key, value) in v.iter() {
                 if first {
                     first = false;
                 } else {
-                    try!(write!(fmt, ", "));
+                    write!(fmt, ", ")?;
                 }
-                try!(write!(fmt, "{}: {}", *key, *value));
+                write!(fmt, "{}: {}", *key, *value)?;
             }
             write!(fmt, "}}")
         }
@@ -289,7 +289,7 @@ pub type ListVec = Vec<Bencode>;
 pub type DictMap = BTreeMap<util::ByteString, Bencode>;
 
 impl Bencode {
-    pub fn to_writer(&self, writer: &mut io::Write) -> io::Result<()> {
+    pub fn to_writer(&self, writer: &mut dyn io::Write) -> io::Result<()> {
         let mut encoder = Encoder::new(writer);
         self.encode(&mut encoder)
     }
@@ -322,7 +322,7 @@ pub trait ToBencode {
 pub trait FromBencode where Self: Sized {
     type Err;
 
-    fn from_bencode(&Bencode) -> Result<Self, Self::Err>;
+    fn from_bencode(bencode: &Bencode) -> Result<Self, Self::Err>;
 }
 
 impl ToBencode for () {
@@ -707,19 +707,10 @@ pub fn encode<T: serialize::Encodable>(t: T) -> io::Result<Vec<u8>> {
     Ok(w)
 }
 
-macro_rules! tryenc(($e:expr) => (
-    match $e {
-        Ok(e) => e,
-        Err(e) => {
-            return
-        }
-    }
-));
-
 pub type EncoderResult<T> = io::Result<T>;
 
 pub struct Encoder<'a> {
-    writer: &'a mut (io::Write + 'a),
+    writer: &'a mut (dyn io::Write + 'a),
     writers: Vec<Vec<u8>>,
     expect_key: bool,
     keys: Vec<util::ByteString>,
@@ -728,9 +719,9 @@ pub struct Encoder<'a> {
 }
 
 impl<'a> Encoder<'a> {
-    pub fn new(writer: &'a mut io::Write) -> Encoder<'a> {
+    pub fn new(writer: &'a mut dyn io::Write) -> Encoder<'a> {
         Encoder {
-            writer: writer,
+            writer,
             writers: Vec::new(),
             expect_key: false,
             keys: Vec::new(),
@@ -739,21 +730,21 @@ impl<'a> Encoder<'a> {
         }
     }
 
-    fn get_writer(&mut self) -> &mut io::Write {
+    fn get_writer_mut(&mut self) -> &mut dyn io::Write {
         if self.writers.len() == 0 {
-            &mut self.writer as &mut io::Write
+            &mut self.writer as &mut dyn io::Write
         } else {
-            self.writers.last_mut().unwrap() as &mut io::Write
+            self.writers.last_mut().unwrap() as &mut dyn io::Write
         }
     }
 
     fn encode_dict(&mut self, dict: &BTreeMap<util::ByteString, Vec<u8>>) -> EncoderResult<()> {
-        try!(write!(self.get_writer(), "d"));
+        write!(self.get_writer_mut(), "d")?;
         for (key, value) in dict.iter() {
-            try!(key.encode(self));
-            try!(self.get_writer().write_all(value));
+            key.encode(self)?;
+            self.get_writer_mut().write_all(value)?;
         }
-        write!(self.get_writer(), "e")
+        write!(self.get_writer_mut(), "e")
     }
 
     fn encode_bytestring(&mut self, v: &[u8]) -> EncoderResult<()> {
@@ -761,8 +752,8 @@ impl<'a> Encoder<'a> {
             self.keys.push(util::ByteString::from_slice(v));
             Ok(())
         } else {
-            try!(write!(self.get_writer(), "{}:", v.len()));
-            self.get_writer().write_all(v)
+            write!(self.get_writer_mut(), "{}:", v.len())?;
+            self.get_writer_mut().write_all(v)
         }
     }
 
@@ -780,7 +771,7 @@ macro_rules! expect_value(($slf:expr) => {
 impl<'a> serialize::Encoder for Encoder<'a> {
     type Error = io::Error;
 
-    fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "0:") }
+    fn emit_nil(&mut self) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer_mut(), "0:") }
 
     fn emit_usize(&mut self, v: usize) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
@@ -800,7 +791,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_i32(&mut self, v: i32) -> EncoderResult<()> { self.emit_i64(v as i64) }
 
-    fn emit_i64(&mut self, v: i64) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer(), "i{}e", v) }
+    fn emit_i64(&mut self, v: i64) -> EncoderResult<()> { expect_value!(self); write!(self.get_writer_mut(), "i{}e", v) }
 
     fn emit_bool(&mut self, v: bool) -> EncoderResult<()> {
         expect_value!(self);
@@ -857,9 +848,9 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_struct<F>(&mut self, _name: &str, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.stack.push(BTreeMap::new());
-        try!(f(self));
+        f(self)?;
         let dict = self.stack.pop().unwrap();
-        try!(self.encode_dict(&dict));
+        self.encode_dict(&dict)?;
         self.is_none = false;
         Ok(())
     }
@@ -867,7 +858,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_struct_field<F>(&mut self, f_name: &str, _f_idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.writers.push(vec![]);
-        try!(f(self));
+        f(self)?;
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
         if !self.is_none {
@@ -899,7 +890,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_option_none(&mut self) -> EncoderResult<()> {
         expect_value!(self);
         self.is_none = true;
-        write!(self.get_writer(), "3:nil")
+        write!(self.get_writer_mut(), "3:nil")
     }
 
     fn emit_option_some<F>(&mut self, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
@@ -909,15 +900,15 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_seq<F>(&mut self, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        try!(write!(self.get_writer(), "l"));
-        try!(f(self));
+        write!(self.get_writer_mut(), "l")?;
+        f(self)?;
         self.is_none = false;
-        write!(self.get_writer(), "e")
+        write!(self.get_writer_mut(), "e")
     }
 
     fn emit_seq_elt<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        try!(f(self));
+        f(self)?;
         self.is_none = false;
         Ok(())
     }
@@ -925,9 +916,9 @@ impl<'a> serialize::Encoder for Encoder<'a> {
     fn emit_map<F>(&mut self, _len: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
         self.stack.push(BTreeMap::new());
-        try!(f(self));
+        f(self)?;
         let dict = self.stack.pop().unwrap();
-        try!(self.encode_dict(&dict));
+        self.encode_dict(&dict)?;
         self.is_none = false;
         Ok(())
     }
@@ -936,7 +927,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
         expect_value!(self);
         self.writers.push(vec![]);
         self.expect_key = true;
-        try!(f(self));
+        f(self)?;
         self.expect_key = false;
         self.is_none = false;
         Ok(())
@@ -944,7 +935,7 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 
     fn emit_map_elt_val<F>(&mut self, _idx: usize, f: F) -> EncoderResult<()> where F: FnOnce(&mut Encoder<'a>) -> EncoderResult<()> {
         expect_value!(self);
-        try!(f(self));
+        f(self)?;
         let key = self.keys.pop();
         let data = self.writers.pop().unwrap();
         let dict = self.stack.last_mut().unwrap();
@@ -962,7 +953,7 @@ pub struct Parser<T> {
 impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
     pub fn new(reader: T) -> Parser<T> {
         Parser {
-            reader: reader,
+            reader,
             depth: 0
         }
     }
@@ -1032,7 +1023,7 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
                 x => panic!("[dict] Unreachable but got {:?}", x)
             };
             current = self.reader.next();
-            let value = try!(self.parse_elem(current));
+            let value = self.parse_elem(current)?;
             map.insert(key, value);
         }
         self.depth -= 1;
@@ -1208,7 +1199,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
 
     fn read_struct<T, F>(&mut self, _name: &str, _len: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
-        let res = try!(f(self));
+        let res = f(self)?;
         self.stack.pop();
         Ok(res)
     }
@@ -1306,7 +1297,7 @@ impl<'a> serialize::Decoder for Decoder<'a> {
     fn read_map_elt_key<T, F>(&mut self, _idx: usize, f: F) -> DecoderResult<T> where F: FnOnce(&mut Decoder<'a>) -> DecoderResult<T> {
         dec_expect_value!(self);
         self.expect_key = true;
-        let res = try!(f(self));
+        let res = f(self)?;
         self.expect_key = false;
         Ok(res)
     }
