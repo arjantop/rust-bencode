@@ -218,7 +218,7 @@ use num_traits::FromPrimitive;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
-use streaming::{StreamingParser, Error};
+use streaming::{StreamingParser, Error, BencodeEventMeta};
 use streaming::BencodeEvent;
 use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
                               DictStart, DictKey, DictEnd, ParseError};
@@ -234,6 +234,22 @@ fn fmt_bytestring(s: &[u8], fmt: &mut fmt::Formatter) -> fmt::Result {
     Ok(s) => write!(fmt, "s\"{}\"", s),
     Err(..) => write!(fmt, "s{:?}", s),
   }
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct BencodeMeta {
+    pub bencode: Bencode,
+    pub position: u32
+}
+
+impl BencodeMeta {
+    pub fn new(bencode: Bencode, position: u32) -> BencodeMeta {
+        BencodeMeta { bencode, position }
+    }
+
+    pub fn empty() -> BencodeMeta {
+        BencodeMeta { bencode: Empty, position: 0 }
+    }
 }
 
 #[derive(PartialEq, Clone, Debug)]
@@ -681,15 +697,29 @@ impl<T: FromBencode> FromBencode for HashMap<String, T> {
     }
 }
 
-pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
-    from_iter(buf.iter().map(|b| *b))
-}
-
 pub fn from_vec(buf: Vec<u8>) -> Result<Bencode, Error> {
     from_buffer(&buf[..])
 }
 
+pub fn from_buffer(buf: &[u8]) -> Result<Bencode, Error> {
+    from_iter(buf.iter().map(|b| *b))
+}
+
 pub fn from_iter<T: Iterator<Item=u8>>(iter: T) -> Result<Bencode, Error> {
+    let streaming_parser = StreamingParser::new(iter);
+    let mut parser = Parser::new(streaming_parser);
+    parser.parse().map(|b| b.bencode)
+}
+
+pub fn from_vec_meta(buf: Vec<u8>) -> Result<BencodeMeta, Error> {
+    from_buffer_meta(&buf[..])
+}
+
+pub fn from_buffer_meta(buf: &[u8]) -> Result<BencodeMeta, Error> {
+    from_iter_meta(buf.iter().map(|b| *b))
+}
+
+pub fn from_iter_meta<T: Iterator<Item=u8>>(iter: T) -> Result<BencodeMeta, Error> {
     let streaming_parser = StreamingParser::new(iter);
     let mut parser = Parser::new(streaming_parser);
     parser.parse()
@@ -950,7 +980,7 @@ pub struct Parser<T> {
     depth: u32,
 }
 
-impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
+impl<T: Iterator<Item=BencodeEventMeta>> Parser<T> {
     pub fn new(reader: T) -> Parser<T> {
         Parser {
             reader,
@@ -958,9 +988,15 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Bencode, Error> {
-        let next = self.reader.next();
-        self.parse_elem(next)
+    pub fn parse(&mut self) -> Result<BencodeMeta, Error> {
+        match self.reader.next() {
+            Some(ev) => {
+                let position = ev.position;
+                self.parse_elem(Some(ev.event))
+                    .map(|b| BencodeMeta::new(b, position))
+            }
+            None => Ok(BencodeMeta::empty())
+        }
     }
 
     fn parse_elem(&mut self, current: Option<BencodeEvent>) -> Result<Bencode, Error> {
@@ -974,7 +1010,9 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
             x => panic!("[root] Unreachable but got {:?}", x)
         };
         if self.depth == 0 {
-            let next = self.reader.next();
+            let next = self.reader
+                .next()
+                .map(|ev| ev.event);
             match res {
                 Err(_) => res,
                 _ => {
@@ -994,7 +1032,9 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         self.depth += 1;
         let mut list = Vec::new();
         loop {
-            let current = self.reader.next();
+            let current = self.reader
+                .next()
+                .map(|ev| ev.event);
             match current {
                 Some(ListEnd) => break,
                 Some(ParseError(err)) => return Err(err),
@@ -1015,14 +1055,18 @@ impl<T: Iterator<Item=BencodeEvent>> Parser<T> {
         self.depth += 1;
         let mut map = BTreeMap::new();
         loop {
-            let mut current = self.reader.next();
+            let mut current = self.reader
+                .next()
+                .map(|ev| ev.event);
             let key = match current {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => util::ByteString::from_vec(v),
                 Some(ParseError(err)) => return Err(err),
                 x => panic!("[dict] Unreachable but got {:?}", x)
             };
-            current = self.reader.next();
+            current = self.reader
+                .next()
+                .map(|ev| ev.event);
             let value = self.parse_elem(current)?;
             map.insert(key, value);
         }
@@ -1319,6 +1363,7 @@ mod tests {
     use streaming::BencodeEvent;
     use streaming::BencodeEvent::{NumberValue, ByteStringValue, ListStart,
                                   ListEnd, DictStart, DictKey, DictEnd, ParseError};
+    use streaming::BencodeEventMeta;
 
     use super::{Bencode, ToBencode};
     use super::{Parser, Decoder, DecoderResult, encode};
@@ -1921,8 +1966,11 @@ mod tests {
     }
 
     fn assert_decoded_eq(events: &[BencodeEvent], expected: Result<Bencode, Error>) {
-        let mut parser = Parser::new(events.to_vec().into_iter());
-        let result = parser.parse();
+        let mut parser = Parser::new(
+            events.to_vec()
+                .into_iter()
+                .map(|e| BencodeEventMeta::new(e, 0)));
+        let result = parser.parse().map(|b| b.bencode);
         assert_eq!(expected, result);
     }
 

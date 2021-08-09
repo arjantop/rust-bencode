@@ -3,6 +3,12 @@ use self::BencodeEvent::{NumberValue, ByteStringValue, ListStart, ListEnd,
                          DictStart, DictKey, DictEnd, ParseError};
 
 #[derive(Debug, Eq, PartialEq, Clone)]
+pub struct BencodeEventMeta {
+    pub event: BencodeEvent,
+    pub position: u32
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum BencodeEvent {
     NumberValue(i64),
     ByteStringValue(Vec<u8>),
@@ -49,11 +55,17 @@ macro_rules! check_nesting(($slf:expr) => (
     }
 ));
 
+impl BencodeEventMeta {
+    pub fn new(event: BencodeEvent, position: u32) -> BencodeEventMeta {
+        BencodeEventMeta { event, position }
+    }
+}
+
 impl<T: Iterator<Item=u8>> StreamingParser<T> {
     pub fn new(mut reader: T) -> StreamingParser<T> {
         let next = reader.next();
         StreamingParser {
-            reader: reader,
+            reader,
             pos: 0,
             decoded: 0,
             end: false,
@@ -232,12 +244,16 @@ impl<T: Iterator<Item=u8>> StreamingParser<T> {
     fn empty_input(&self) -> bool {
         self.curr == None && self.decoded == 0
     }
+
+    fn read_complete(&self) -> bool {
+        self.decoded > 0 && self.stack.len() == 0
+    }
 }
 
 impl<T: Iterator<Item=u8>> Iterator for StreamingParser<T> {
-    type Item = BencodeEvent;
-    fn next(&mut self) -> Option<BencodeEvent> {
-        if self.end || self.empty_input() {
+    type Item = BencodeEventMeta;
+    fn next(&mut self) -> Option<BencodeEventMeta> {
+        if self.end || self.empty_input() || self.read_complete() {
             return None
         }
         let result = match self.stack.pop() {
@@ -255,10 +271,10 @@ impl<T: Iterator<Item=u8>> Iterator for StreamingParser<T> {
             }
         };
         match result {
-            Ok(ev) => Some(ev),
+            Ok(ev) => Some(BencodeEventMeta::new(ev, self.pos)),
             Err(err) => {
                 self.end = true;
-                Some(ParseError(err))
+                Some(BencodeEventMeta::new(ParseError(err), self.pos))
             }
         }
     }
@@ -289,8 +305,10 @@ mod test {
 
     fn assert_stream_eq(encoded: &str, expected: &[BencodeEvent]) {
         let parser = StreamingParser::new(encoded.bytes());
-        let result = parser.collect::<Vec<_>>();
-        assert_eq!(expected.to_vec(), result);
+        let result = parser
+            .map(|ev| ev.event)
+            .collect::<Vec<_>>();
+        assert_eq!(expected.to_vec().into_iter().collect::<Vec<_>>(), result);
     }
 
     #[test]
@@ -346,13 +364,11 @@ mod test {
     }
 
     #[test]
-    fn parse_error_on_more_than_one_value_outside_of_containers() {
-        let msg = "Only one value allowed outside of containers".to_string();
-        assert_stream_eq("i1ei2e", &[NumberValue(1), ParseError(Error{ pos: 3, msg: msg.clone() })]);
-        assert_stream_eq("i10eli2ee", &[NumberValue(10), ParseError(Error{ pos: 4, msg: msg.clone() })]);
-        assert_stream_eq("1:ade", &[ByteStringValue(bytes("a")), ParseError(Error{ pos: 3, msg: msg.clone() })]);
-        assert_stream_eq("3:foo3:bar", &[ByteStringValue(bytes("foo")),
-                                         ParseError(Error{ pos: 5, msg: msg.clone() })]);
+    fn parse_ok_on_more_than_one_value_outside_of_containers() {
+        assert_stream_eq("i1ei2e", &[NumberValue(1)]);
+        assert_stream_eq("i10eli2ee", &[NumberValue(10)]);
+        assert_stream_eq("1:ade", &[ByteStringValue(bytes("a"))]);
+        assert_stream_eq("3:foo3:bar", &[ByteStringValue(bytes("foo"))]);
     }
 
     #[test]
@@ -495,7 +511,7 @@ mod test {
     fn parse_error_on_unmatched_value_ending() {
         let msg = "Unmatched value ending".to_string();
         assert_stream_eq("e", &[ParseError(Error{ pos: 1, msg: msg.clone() })]);
-        assert_stream_eq("lee", &[ListStart, ListEnd, ParseError(Error{ pos: 3, msg: msg.clone() })]);
+        assert_stream_eq("lee", &[ListStart, ListEnd]);
     }
 
 }
