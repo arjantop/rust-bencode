@@ -978,25 +978,41 @@ impl<'a> serialize::Encoder for Encoder<'a> {
 pub struct Parser<T> {
     reader: T,
     depth: u32,
+    last: Option<BencodeEventMeta>
 }
 
 impl<T: Iterator<Item=BencodeEventMeta>> Parser<T> {
     pub fn new(reader: T) -> Parser<T> {
         Parser {
             reader,
-            depth: 0
+            depth: 0,
+            last: None
         }
     }
 
     pub fn parse(&mut self) -> Result<BencodeMeta, Error> {
-        match self.reader.next() {
+        let response = match self.reader_next() {
             Some(ev) => {
-                let position = ev.position;
-                self.parse_elem(Some(ev.event))
-                    .map(|b| BencodeMeta::new(b, position))
+                self.parse_elem(Some(ev))?
             }
-            None => Ok(BencodeMeta::empty())
+            None => Bencode::Empty
+        };
+        Ok(BencodeMeta::new(response, self.reader_position()))
+    }
+
+    fn reader_next(&mut self) -> Option<BencodeEvent> {
+        match self.reader.next()? {
+            ev => {
+                self.last = Some(ev.clone());
+                Some(ev.event)
+            }
         }
+    }
+
+    fn reader_position(&self) -> u32 {
+        self.last.as_ref()
+            .map(|last| last.position)
+            .unwrap_or(0)
     }
 
     fn parse_elem(&mut self, current: Option<BencodeEvent>) -> Result<Bencode, Error> {
@@ -1010,9 +1026,7 @@ impl<T: Iterator<Item=BencodeEventMeta>> Parser<T> {
             x => panic!("[root] Unreachable but got {:?}", x)
         };
         if self.depth == 0 {
-            let next = self.reader
-                .next()
-                .map(|ev| ev.event);
+            let next = self.reader_next();
             match res {
                 Err(_) => res,
                 _ => {
@@ -1032,9 +1046,7 @@ impl<T: Iterator<Item=BencodeEventMeta>> Parser<T> {
         self.depth += 1;
         let mut list = Vec::new();
         loop {
-            let current = self.reader
-                .next()
-                .map(|ev| ev.event);
+            let current = self.reader_next();
             match current {
                 Some(ListEnd) => break,
                 Some(ParseError(err)) => return Err(err),
@@ -1055,18 +1067,14 @@ impl<T: Iterator<Item=BencodeEventMeta>> Parser<T> {
         self.depth += 1;
         let mut map = BTreeMap::new();
         loop {
-            let mut current = self.reader
-                .next()
-                .map(|ev| ev.event);
+            let mut current = self.reader_next();
             let key = match current {
                 Some(DictEnd) => break,
                 Some(DictKey(v)) => util::ByteString::from_vec(v),
                 Some(ParseError(err)) => return Err(err),
                 x => panic!("[dict] Unreachable but got {:?}", x)
             };
-            current = self.reader
-                .next()
-                .map(|ev| ev.event);
+            current = self.reader_next();
             let value = self.parse_elem(current)?;
             map.insert(key, value);
         }
@@ -1369,6 +1377,7 @@ mod tests {
     use super::{Parser, Decoder, DecoderResult, encode};
 
     use super::util;
+    use BencodeMeta;
 
     macro_rules! assert_encoding(($value:expr, $expected:expr) => ({
         let value = $value;
@@ -1974,6 +1983,14 @@ mod tests {
         assert_eq!(expected, result);
     }
 
+    fn assert_decoded_meta_eq(events: &[BencodeEventMeta], expected: Result<BencodeMeta, Error>) {
+        let mut parser = Parser::new(
+            events.to_vec()
+                .into_iter());
+        let result = parser.parse();
+        assert_eq!(expected, result);
+    }
+
     #[test]
     fn decodes_empty_input() {
         assert_decoded_eq(&[], Ok(Bencode::Empty));
@@ -2085,6 +2102,16 @@ mod tests {
         assert_decoded_eq(&[DictStart,
                             DictKey(bytes("foo")),
                            perr.clone()], Err(err.clone()));
+    }
+
+    #[test]
+    fn decode_last_position() {
+        let bencode = Bencode::Dict(map!(BTreeMap, (util::ByteString::from_vec(bytes("msg_type")), Bencode::Number(1))));
+        let position = 45;
+        assert_decoded_meta_eq(&[BencodeEventMeta { event: DictStart, position: 1 },
+            BencodeEventMeta { event: DictKey(bytes("msg_type")), position: 11 },
+            BencodeEventMeta { event: NumberValue(1), position: 14 },
+            BencodeEventMeta { event: DictEnd, position }], Ok(BencodeMeta { bencode, position }));
     }
 }
 

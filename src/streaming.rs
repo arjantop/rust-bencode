@@ -294,6 +294,7 @@ mod test {
     use std::str;
 
     use super::{StreamingParser, Error};
+    use super::BencodeEventMeta;
     use super::BencodeEvent;
     use super::BencodeEvent::{NumberValue, ByteStringValue, ListStart,
                               ListEnd, DictStart, DictKey, DictEnd, ParseError};
@@ -308,6 +309,12 @@ mod test {
         let result = parser
             .map(|ev| ev.event)
             .collect::<Vec<_>>();
+        assert_eq!(expected.to_vec().into_iter().collect::<Vec<_>>(), result);
+    }
+
+    fn assert_stream_meta_eq(encoded: &str, expected: &[BencodeEventMeta]) {
+        let parser = StreamingParser::new(encoded.bytes());
+        let result = parser.collect::<Vec<_>>();
         assert_eq!(expected.to_vec().into_iter().collect::<Vec<_>>(), result);
     }
 
@@ -514,4 +521,16 @@ mod test {
         assert_stream_eq("lee", &[ListStart, ListEnd]);
     }
 
+    #[test]
+    fn parse_value_with_position() {
+        assert_stream_meta_eq("d8:msg_typei1e5:piecei0e10:total_sizei15673eed6:lengthi1629279537e",
+        &[BencodeEventMeta { event: DictStart, position: 1 },
+            BencodeEventMeta { event: DictKey(bytes("msg_type")), position: 11 },
+            BencodeEventMeta { event: NumberValue(1), position: 14 },
+            BencodeEventMeta { event: DictKey(bytes("piece")), position: 21 },
+            BencodeEventMeta { event: NumberValue(0), position: 24 },
+            BencodeEventMeta { event: DictKey(bytes("total_size")), position: 37 },
+            BencodeEventMeta { event: NumberValue(15673), position: 44 },
+            BencodeEventMeta { event: DictEnd, position: 45 }]);
+    }
 }
